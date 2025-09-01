@@ -1,0 +1,58 @@
+{
+  "name": "vilches-property-management",
+  "version": "1.0.0",
+  "description": "Ett professionellt projektledningssystem för bygg- och fastighetsentreprenörer",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "db:generate": "cd backend && npm run prisma:generate",
+    "db:migrate": "cd backend && npm run prisma:migrate",
+    "db:studio": "cd backend && npm run prisma:studio",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && npm test",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd backend && npm run lint",
+    "lint:frontend": "cd frontend && npm run lint",
+    "format": "npm run format:backend && npm run format:frontend",
+    "format:backend": "cd backend && npm run format",
+    "format:frontend": "cd frontend && npm run format"
+  },
+  "keywords": [
+    "property-management",
+    "construction",
+    "contractor-management",
+    "project-management",
+    "sweden",
+    "entreprenör",
+    "bygg",
+    "fastighet"
+  ],
+  "author": "Vilches Entreprenad AB",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/vilches-property-management.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/vilches-property-management/issues"
+  },
+  "homepage": "https://github.com/yourusername/vilches-property-management#readme",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

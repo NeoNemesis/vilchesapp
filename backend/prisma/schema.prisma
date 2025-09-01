@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String         @id @default(uuid())
+  email            String         @unique
+  name             String
+  password         String
+  phone            String?
+  company          String?
+  role             Role
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  notifications    Notification[]
+  assignedProjects Project[]      @relation("AssignedProjects")
+  createdProjects  Project[]      @relation("CreatedProjects")
+  reports          Report[]       @relation("ReportAuthor")
+}
+
+model Project {
+  id             String         @id @default(uuid())
+  projectNumber  String         @unique @default(cuid())
+  title          String
+  description    String
+  address        String
+  clientName     String
+  clientEmail    String
+  clientPhone    String?
+  priority       Priority       @default(NORMAL)
+  status         ProjectStatus  @default(PENDING)
+  estimatedHours Float?
+  estimatedCost  Float?
+  deadline       DateTime?
+  originalEmail  String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  createdById    String
+  assignedToId   String?
+  notifications  Notification[]
+  assignedTo     User?          @relation("AssignedProjects", fields: [assignedToId], references: [id])
+  createdBy      User           @relation("CreatedProjects", fields: [createdById], references: [id])
+  images         ProjectImage[]
+  reports        Report[]
+}
+
+model Report {
+  id              String        @id @default(uuid())
+  projectId       String
+  title           String
+  workDescription String
+  hoursWorked     Float
+  materialsUsed   Json
+  progressPercent Int           @default(0)
+  nextSteps       String?
+  issues          String?
+  isCompleted     Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  authorId        String
+  author          User          @relation("ReportAuthor", fields: [authorId], references: [id])
+  project         Project       @relation(fields: [projectId], references: [id])
+  images          ReportImage[]
+}
+
+model ProjectImage {
+  id           String   @id @default(uuid())
+  projectId    String
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  uploadedAt   DateTime @default(now())
+  project      Project  @relation(fields: [projectId], references: [id])
+}
+
+model ReportImage {
+  id           String   @id @default(uuid())
+  reportId     String
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  description  String?
+  uploadedAt   DateTime @default(now())
+  report       Report   @relation(fields: [reportId], references: [id])
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  userId      String?
+  projectId   String?
+  type        NotificationType
+  subject     String
+  message     String
+  emailSent   Boolean          @default(false)
+  emailSentAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime         @default(now())
+  project     Project?         @relation(fields: [projectId], references: [id])
+  user        User?            @relation(fields: [userId], references: [id])
+}
+
+model EmailTemplate {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  subject   String
+  body      String
+  variables Json
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  ADMIN
+  CONTRACTOR
+  CLIENT
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum ProjectStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  AWAITING_REVIEW
+  COMPLETED
+  CANCELLED
+  SENT_TO_CLIENT
+}
+
+enum NotificationType {
+  PROJECT_ASSIGNED
+  REPORT_SUBMITTED
+  PROJECT_COMPLETED
+  DEADLINE_REMINDER
+  GENERAL
+}
