@@ -1,0 +1,229 @@
+{
+  "name": "Vilches Ads 3: Budget Optimizer PRO",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1,4"
+            }
+          ]
+        }
+      },
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        400
+      ],
+      "id": "schedule-trigger"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ads/budget-optimize",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        560
+      ],
+      "id": "manual-webhook",
+      "webhookId": "budget-optimize-v2"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://graph.facebook.com/v24.0/act_2116629428888469/adsets?fields=id,name,status,daily_budget,insights.date_preset(last_7d).fields(impressions,clicks,spend,actions)&access_token={{ $env.FACEBOOK_USER_TOKEN }}",
+        "options": {}
+      },
+      "name": "Fetch Ads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        480
+      ],
+      "id": "fetch-adsets"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH lead_quality AS (\n  SELECT\n    LOWER(service_interest) as service,\n    COUNT(*) as leads_7d,\n    ROUND(AVG(ai_quality_score), 1) as avg_qual\n  FROM ad_leads\n  WHERE created_at > NOW() - INTERVAL '7 days'\n    AND service_interest IS NOT NULL\n    AND service_interest != ''\n  GROUP BY LOWER(service_interest)\n),\nbudget_history AS (\n  SELECT\n    TRIM(split_part(reason, ':', 1)) as campaign_key,\n    MAX(executed_at) as last_change,\n    COUNT(*) as changes_7d,\n    SUM(change_percent) as total_pct\n  FROM budget_adjustments\n  WHERE executed_at > NOW() - INTERVAL '7 days'\n  GROUP BY TRIM(split_part(reason, ':', 1))\n)\nSELECT json_build_object(\n  'lead_quality', COALESCE(\n    (SELECT json_object_agg(service, json_build_object('leads_7d', leads_7d, 'avg_qual', avg_qual)) FROM lead_quality),\n    '{}'::json\n  ),\n  'budget_history', COALESCE(\n    (SELECT json_object_agg(campaign_key, json_build_object('last_change', last_change, 'changes_7d', changes_7d, 'total_pct', total_pct)) FROM budget_history),\n    '{}'::json\n  )\n) as stats;",
+        "options": {}
+      },
+      "name": "Query DB Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        680,
+        480
+      ],
+      "id": "query-db-stats",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-social-media-2025",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// BUDGET OPTIMIZER PRO v3.0 - Fully Dynamic\n// All data from Meta API + PostgreSQL\n// No hardcoded values\n// ============================================\n\n// ---- DATA SOURCES ----\nconst metaData = $('Fetch Ads').first().json;\nconst adSets = metaData.data || [];\n\n// DB stats from previous node\nconst dbRaw = $input.first().json;\nlet stats = {};\ntry {\n  const raw = dbRaw.stats || dbRaw;\n  stats = typeof raw === 'string' ? JSON.parse(raw) : raw;\n} catch (e) {\n  stats = {};\n}\nconst leadQuality = stats.lead_quality || {};\nconst budgetHistory = stats.budget_history || {};\n\n// ---- CONFIGURATION ----\nconst CONFIG = {\n  TARGET_CPL: 300,\n\n  // Minimum data before any change\n  MIN_LEADS: 5,\n  MIN_SPEND_FACTOR: 3,\n\n  // Cooldown & caps\n  MIN_DAYS_SINCE_CHANGE: 5,\n  MAX_WEEKLY_TOTAL_CHANGE: 30,\n\n  // Dead zone\n  NO_CHANGE_ZONE: 0.15,\n\n  // Budget limits (Meta API uses cents/ore)\n  MIN_DAILY_BUDGET: 5000,\n  MAX_DAILY_BUDGET: 100000,\n  MIN_CHANGE_AMOUNT: 1000,\n\n  // Safety\n  PAUSE_CPL_MULTIPLIER: 2.0\n};\n\n// ---- HELPER: Extract lead count from Meta insights ----\nfunction getMetaLeads(insights) {\n  const actions = insights?.actions || [];\n  const leadTypes = [\n    'lead',\n    'onsite_conversion.lead_grouped',\n    'offsite_conversion.fb_pixel_lead',\n    'offsite_conversion.fb_pixel_custom'\n  ];\n  for (const a of actions) {\n    if (leadTypes.includes(a.action_type)) {\n      return parseInt(a.value) || 0;\n    }\n  }\n  return 0;\n}\n\n// ---- HELPER: Match quality from DB (fuzzy Swedish match) ----\nfunction matchQuality(svcKey, lq) {\n  if (!lq || Object.keys(lq).length === 0) return null;\n  const normalize = s => s.toLowerCase()\n    .replace(/[\\u00e5\\u00e4]/g, 'a')\n    .replace(/\\u00f6/g, 'o')\n    .replace(/[^a-z]/g, '');\n  const target = normalize(svcKey);\n  for (const [service, data] of Object.entries(lq)) {\n    const s = normalize(service);\n    if (s.includes(target) || target.includes(s)) {\n      return data;\n    }\n  }\n  return null;\n}\n\n// ---- HELPER: Check cooldown from budget history ----\nfunction getCooldown(adName, bh, minDays) {\n  for (const [key, data] of Object.entries(bh)) {\n    if (adName.includes(key) || key.includes(adName)) {\n      const days = (Date.now() - new Date(data.last_change).getTime()) / 86400000;\n      return {\n        days: Math.round(days * 10) / 10,\n        count: parseInt(data.changes_7d) || 0,\n        totalPct: parseFloat(data.total_pct) || 0,\n        cooling: days < minDays\n      };\n    }\n  }\n  return { days: 999, count: 0, totalPct: 0, cooling: false };\n}\n\n// ---- MAIN OPTIMIZATION LOOP ----\nconst results = [];\nconst summary = [];\n\nfor (const ad of adSets) {\n  if (ad.status !== 'ACTIVE') continue;\n\n  const name = ad.name || 'UNKNOWN';\n  const svc = name.split('_')[1] || 'UNKNOWN';\n  const budget = parseInt(ad.daily_budget) || 15000;\n  const budgetSEK = budget / 100;\n  const ins = ad.insights?.data?.[0] || {};\n  const spend = parseFloat(ins.spend) || 0;\n  const impressions = parseInt(ins.impressions) || 0;\n  const clicks = parseInt(ins.clicks) || 0;\n\n  // ---- DYNAMIC: Leads from Meta API actions ----\n  const metaLeads = getMetaLeads(ins);\n\n  // ---- DYNAMIC: Quality from DB ----\n  const qData = matchQuality(svc, leadQuality);\n  const dbLeads = qData ? parseInt(qData.leads_7d) || 0 : 0;\n  const qual = qData ? parseFloat(qData.avg_qual) || 0 : 0;\n\n  // Primary: Meta leads. Fallback: DB leads.\n  const leads = metaLeads > 0 ? metaLeads : dbLeads;\n  const leadSrc = metaLeads > 0 ? 'Meta' : (dbLeads > 0 ? 'DB' : 'none');\n\n  // CPL calculation (dynamic, based on real data)\n  const cpl = leads > 0 ? Math.round(spend / leads) : (spend > 0 ? 9999 : 0);\n\n  // Budget history (from DB)\n  const hist = getCooldown(name, budgetHistory, CONFIG.MIN_DAYS_SINCE_CHANGE);\n\n  // ==== CHECK 1: Cooldown ====\n  if (hist.cooling) {\n    summary.push('[COOLDOWN] ' + svc + ': ' + budgetSEK + ' kr | Cooldown (' + hist.days + 'd sedan senaste)');\n    continue;\n  }\n\n  // ==== CHECK 2: Weekly change cap ====\n  if (Math.abs(hist.totalPct) >= CONFIG.MAX_WEEKLY_TOTAL_CHANGE) {\n    summary.push('[LOCK] ' + svc + ': ' + budgetSEK + ' kr | Veckotak natt (' + hist.totalPct.toFixed(0) + '%)');\n    continue;\n  }\n\n  // ==== CHECK 3: Minimum data ====\n  const hasMin = leads >= CONFIG.MIN_LEADS || spend >= CONFIG.TARGET_CPL * CONFIG.MIN_SPEND_FACTOR;\n  if (!hasMin) {\n    summary.push('[WAIT] ' + svc + ': ' + budgetSEK + ' kr | Learning (L:' + leads + ' Spend:' + spend.toFixed(0) + ' kr)');\n    continue;\n  }\n\n  // ==== Calculate deviation ====\n  let dev = 0;\n  if (leads > 0) {\n    dev = (cpl - CONFIG.TARGET_CPL) / CONFIG.TARGET_CPL;\n  } else if (spend > CONFIG.TARGET_CPL) {\n    dev = 1.0;\n  }\n\n  // ==== Decision logic ====\n  let action = 'maintain';\n  let newBudget = budget;\n  let pct = 0;\n  let reason = '';\n  const capLeft = CONFIG.MAX_WEEKLY_TOTAL_CHANGE - Math.abs(hist.totalPct);\n\n  // SAFETY: CPL > 2x target\n  if (cpl > CONFIG.TARGET_CPL * CONFIG.PAUSE_CPL_MULTIPLIER && leads >= 2) {\n    action = 'flag';\n    reason = 'CPL ' + cpl + ' kr > ' + (CONFIG.TARGET_CPL * 2) + ' kr - Flaggad!';\n  }\n  // DECREASE: CPL 40%+ over target\n  else if (dev > 0.40 && leads >= 2) {\n    pct = -Math.min(15, capLeft);\n    action = 'decrease';\n    reason = 'CPL ' + cpl + ' kr (+' + Math.round(dev * 100) + '%) mycket over target';\n  }\n  // DECREASE: CPL 25-40% over target\n  else if (dev > 0.25 && leads >= 2) {\n    pct = -Math.min(10, capLeft);\n    action = 'decrease';\n    reason = 'CPL ' + cpl + ' kr (+' + Math.round(dev * 100) + '%) over target';\n  }\n  // DECREASE: CPL 15-25% over target\n  else if (dev > CONFIG.NO_CHANGE_ZONE && leads >= 2) {\n    pct = -Math.min(5, capLeft);\n    action = 'decrease';\n    reason = 'CPL ' + cpl + ' kr strax over target';\n  }\n  // DECREASE: 0 leads with significant spend\n  else if (leads === 0 && spend > CONFIG.TARGET_CPL) {\n    pct = -Math.min(10, capLeft);\n    action = 'decrease';\n    reason = '0 leads, spend ' + spend.toFixed(0) + ' kr';\n  }\n  // INCREASE: CPL 25%+ under target (excellent)\n  else if (dev < -0.25 && leads >= 3) {\n    pct = Math.min(15, capLeft);\n    action = 'increase';\n    reason = 'Bra CPL ' + cpl + ' kr (' + Math.round(dev * 100) + '%)';\n  }\n  // INCREASE: CPL 15-25% under target (good)\n  else if (dev < -CONFIG.NO_CHANGE_ZONE && leads >= 2) {\n    pct = Math.min(10, capLeft);\n    action = 'increase';\n    reason = 'CPL ' + cpl + ' kr under target';\n  }\n  // MAINTAIN: within dead zone\n  else {\n    reason = 'CPL ' + cpl + ' kr inom +/-15% av target (' + CONFIG.TARGET_CPL + ')';\n  }\n\n  // Apply change\n  if (pct !== 0) {\n    newBudget = Math.round(budget * (1 + pct / 100));\n  }\n\n  // Enforce absolute limits\n  newBudget = Math.max(CONFIG.MIN_DAILY_BUDGET, Math.min(CONFIG.MAX_DAILY_BUDGET, newBudget));\n\n  // Skip tiny changes\n  if (Math.abs(newBudget - budget) < CONFIG.MIN_CHANGE_AMOUNT) {\n    action = 'maintain';\n    newBudget = budget;\n    pct = 0;\n  }\n\n  // Build summary\n  const labels = { increase: 'UP', decrease: 'DOWN', flag: 'FLAG', maintain: 'OK' };\n  const lbl = labels[action] || 'OK';\n  summary.push(\n    '[' + lbl + '] ' + svc + ': ' + budgetSEK + ' -> ' + (newBudget / 100) + ' kr' +\n    ' | L:' + leads + '(' + leadSrc + ')' +\n    ' CPL:' + cpl +\n    ' Dev:' + Math.round(dev * 100) + '%' +\n    (qual > 0 ? ' Q:' + qual : '') +\n    (pct !== 0 ? ' [' + (pct > 0 ? '+' : '') + pct + '%]' : '')\n  );\n\n  if (action !== 'maintain' && action !== 'flag') {\n    results.push({\n      id: ad.id,\n      name: name,\n      svc: svc,\n      old: budget,\n      new: newBudget,\n      pct: pct,\n      rsn: reason,\n      cpl: cpl,\n      leads: leads,\n      leadSrc: leadSrc,\n      qual: qual,\n      spend: spend,\n      deviation: Math.round(dev * 100)\n    });\n  }\n}\n\n// Footer\nsummary.push('');\nsummary.push('v3.0 Dynamic | Target: ' + CONFIG.TARGET_CPL + ' kr | Cooldown: ' + CONFIG.MIN_DAYS_SINCE_CHANGE + 'd | Cap: +/-' + CONFIG.MAX_WEEKLY_TOTAL_CHANGE + '%/vecka');\nsummary.push('Data: Meta Insights (leads, spend) + DB (kvalitet, historik)');\n\nreturn [{ json: { updates: results, summary: summary.join('\\n'), count: results.length } }];\n"
+      },
+      "name": "Analyze",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        480
+      ],
+      "id": "analyze-all"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst results = data.updates || [];\nconst token = $env.FACEBOOK_USER_TOKEN;\nconst dbLogs = [];\n\nfor (const u of results) {\n  try {\n    const url = 'https://graph.facebook.com/v24.0/' + u.id + '?daily_budget=' + u.new + '&access_token=' + token;\n    const resp = await this.helpers.httpRequest({ method: 'POST', url: url });\n    if (resp.success) {\n      dbLogs.push({\n        old: u.old / 100,\n        new: u.new / 100,\n        change: u.pct,\n        reason: u.name + ': ' + u.rsn,\n        metrics: {\n          cpl: u.cpl,\n          leads: u.leads,\n          leadSource: u.leadSrc,\n          qual: u.qual,\n          spend: u.spend,\n          deviation: u.deviation\n        }\n      });\n    }\n  } catch (err) {\n    dbLogs.push({\n      old: u.old / 100,\n      new: u.old / 100,\n      change: 0,\n      reason: u.name + ': ERROR - ' + (err.message || 'Unknown'),\n      metrics: { cpl: u.cpl, leads: u.leads, error: true }\n    });\n  }\n}\n\nreturn [{ json: { summary: data.summary, dbLogs: dbLogs, changedAds: dbLogs.length } }];\n"
+      },
+      "name": "Execute",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        480
+      ],
+      "id": "execute-updates"
+    },
+    {
+      "parameters": {
+        "chatId": "7671985048",
+        "text": "=BUDGET OPTIMIZER PRO v3.0\n{{ new Date().toLocaleString('sv-SE') }}\n\n{{ $json.summary }}\n\n{{ $json.changedAds > 0 ? $json.changedAds + ' andringar gjorda' : 'Inga andringar behovdes' }}",
+        "additionalFields": {
+          "parseMode": "Markdown"
+        }
+      },
+      "name": "Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        400
+      ],
+      "id": "send-report",
+      "credentials": {
+        "telegramApi": {
+          "id": "ebQNM3QAXZxV1rt8",
+          "name": "Telegram account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO budget_adjustments (old_daily_budget_sek, new_daily_budget_sek, change_percent, reason, trigger_metric, metric_value, decision_factors, automated, executed_at, success)\nSELECT (i->>'old')::numeric, (i->>'new')::numeric, (i->>'change')::numeric, i->>'reason', 'cpl', (i->'metrics'->>'cpl')::numeric, i->'metrics', true, NOW(), true\nFROM json_array_elements('{{ JSON.stringify($json.dbLogs) }}'::json) i\nRETURNING id;",
+        "options": {}
+      },
+      "name": "Log DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1340,
+        560
+      ],
+      "id": "log-to-db",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-social-media-2025",
+          "name": "PostgreSQL Account"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Ads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Fetch Ads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Ads": {
+      "main": [
+        [
+          {
+            "node": "Query DB Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query DB Stats": {
+      "main": [
+        [
+          {
+            "node": "Analyze",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze": {
+      "main": [
+        [
+          {
+            "node": "Execute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute": {
+      "main": [
+        [
+          {
+            "node": "Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": true,
+  "id": "6ce1514b-1aef-436f-8470-8c55752ec2bf",
+  "versionId": "budget-optimizer-pro-v3"
+}

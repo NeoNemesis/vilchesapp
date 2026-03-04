@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { 
-  HomeIcon, 
+import {
+  HomeIcon,
   ClipboardDocumentListIcon,
   UserCircleIcon,
   Bars3Icon,
   XMarkIcon,
-  ArrowRightOnRectangleIcon
+  ArrowRightOnRectangleIcon,
+  CogIcon,
+  CalendarDaysIcon,
+  MapIcon,
+  DocumentIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -17,6 +22,10 @@ const EntrepreneurLayout: React.FC = () => {
   const navigation = [
     { name: 'Dashboard', href: '/contractor', icon: HomeIcon },
     { name: 'Mina projekt', href: '/contractor/projects', icon: ClipboardDocumentListIcon },
+    { name: 'Kalender', href: '/contractor/calendar', icon: CalendarDaysIcon },
+    { name: 'Karta', href: '/contractor/map', icon: MapIcon },
+    { name: 'Dokument', href: '/contractor/documents', icon: DocumentIcon },
+    { name: 'Inställningar', href: '/contractor/settings', icon: CogIcon },
   ];
 
   return (
@@ -80,7 +89,7 @@ const EntrepreneurLayout: React.FC = () => {
       <div className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
         <div className="flex flex-col flex-1 bg-white border-r border-gray-200">
           <div className="flex h-16 items-center px-6 border-b border-gray-200">
-            <h1 className="text-xl font-bold text-gray-900">Vilches Entreprenad</h1>
+            <h1 className="text-xl font-bold text-gray-900">VilchesApp</h1>
           </div>
           <nav className="flex-1 px-3 py-4">
             {navigation.map((item) => (
@@ -131,7 +140,7 @@ const EntrepreneurLayout: React.FC = () => {
             <Bars3Icon className="h-6 w-6" />
           </button>
           <div className="flex-1">
-            <h1 className="text-lg font-semibold">Vilches Entreprenad</h1>
+            <h1 className="text-lg font-semibold">VilchesApp</h1>
           </div>
         </div>
 

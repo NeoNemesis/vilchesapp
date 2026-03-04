@@ -7,22 +7,33 @@ import {
   MapPinIcon,
   ClockIcon,
   ExclamationTriangleIcon,
-  ClipboardDocumentListIcon
+  ClipboardDocumentListIcon,
+  CheckCircleIcon
 } from '@heroicons/react/24/outline';
 import { api } from '../../services/api';
+import { useBasePath } from '../../hooks/useBasePath';
 import { Order } from '../../types';
 import { format } from 'date-fns';
 import { sv } from 'date-fns/locale';
 
 const EntrepreneurOrders: React.FC = () => {
+  const basePath = useBasePath();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
 
   // Läs URL-parametrar när komponenten laddas
   useEffect(() => {
     const statusParam = searchParams.get('status');
     const priorityParam = searchParams.get('priority');
+    const tabParam = searchParams.get('tab');
+    
+    if (tabParam === 'completed') {
+      setActiveTab('completed');
+    } else if (tabParam === 'active') {
+      setActiveTab('active');
+    }
     
     if (statusParam) {
       setStatusFilter(statusParam);
@@ -33,10 +44,22 @@ const EntrepreneurOrders: React.FC = () => {
     }
   }, [searchParams]);
 
-  const { data: orders, isLoading } = useQuery({
+  // Hämta aktiva projekt
+  const { data: activeOrders, isLoading: isLoadingActive } = useQuery({
     queryKey: ['entrepreneur-orders'],
-    queryFn: api.getMyOrders,
+    queryFn: api.getMyProjects,
+    enabled: activeTab === 'active'
   });
+
+  // Hämta färdiga projekt
+  const { data: completedOrders, isLoading: isLoadingCompleted } = useQuery({
+    queryKey: ['entrepreneur-completed-orders'],
+    queryFn: api.getMyCompletedProjects,
+    enabled: activeTab === 'completed'
+  });
+
+  const orders = activeTab === 'active' ? activeOrders : completedOrders;
+  const isLoading = activeTab === 'active' ? isLoadingActive : isLoadingCompleted;
 
   const filteredOrders = orders?.filter((order: Order) => {
     const matchesSearch = order.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -58,6 +81,7 @@ const EntrepreneurOrders: React.FC = () => {
     const statusConfig = {
       ASSIGNED: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Tilldelad' },
       IN_PROGRESS: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Pågående' },
+      COMPLETED: { bg: 'bg-green-100', text: 'text-green-800', label: 'Färdig' },
       REPORTED: { bg: 'bg-green-100', text: 'text-green-800', label: 'Rapporterad' },
       APPROVED: { bg: 'bg-purple-100', text: 'text-purple-800', label: 'Godkänd' },
     };
@@ -89,30 +113,71 @@ const EntrepreneurOrders: React.FC = () => {
     <div>
       <div className="sm:flex sm:items-center sm:justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {statusFilter === 'ASSIGNED' ? 'Väntar på svar' :
-             statusFilter === 'IN_PROGRESS' ? 'Pågående uppdrag' :
-             statusFilter === 'REPORTED' ? 'Rapporterade uppdrag' :
-             statusFilter === 'APPROVED' ? 'Godkända uppdrag' :
-             statusFilter === 'urgent' ? 'Brådskande uppdrag' :
-             'Mina uppdrag'}
-          </h1>
-          {statusFilter !== 'all' && (
-            <p className="text-sm text-gray-600 mt-1">
-              {statusFilter === 'ASSIGNED' ? 'Projekt som väntar på din bekräftelse' :
-               statusFilter === 'IN_PROGRESS' ? 'Projekt du arbetar med just nu' :
-               statusFilter === 'REPORTED' ? 'Projekt där du skickat in rapport' :
-               statusFilter === 'APPROVED' ? 'Projekt som är godkända och klara' :
-               statusFilter === 'urgent' ? 'Projekt med hög eller brådskande prioritet' :
-               ''}
-            </p>
-          )}
+          <h1 className="text-2xl font-bold text-gray-900">Mina uppdrag</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            {activeTab === 'active' ? 'Aktiva och pågående projekt' : 'Färdiga och avslutade projekt'}
+          </p>
         </div>
         <div className="mt-4 sm:mt-0">
           <span className="text-sm text-gray-500">
             {filteredOrders?.length || 0} uppdrag
           </span>
         </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="mb-6">
+        <nav className="flex space-x-8" aria-label="Tabs">
+          <button
+            onClick={() => {
+              setActiveTab('active');
+              setSearchParams({ tab: 'active' });
+              setStatusFilter('all'); // Reset filter when switching tabs
+            }}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'active'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <ClipboardDocumentListIcon className="h-5 w-5" />
+              Aktiva projekt
+              {activeOrders && (
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  activeTab === 'active' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
+                }`}>
+                  {activeOrders.length}
+                </span>
+              )}
+            </div>
+          </button>
+          
+          <button
+            onClick={() => {
+              setActiveTab('completed');
+              setSearchParams({ tab: 'completed' });
+              setStatusFilter('all'); // Reset filter when switching tabs
+            }}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'completed'
+                ? 'border-green-500 text-green-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <CheckCircleIcon className="h-5 w-5" />
+              Färdiga projekt
+              {completedOrders && (
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  activeTab === 'completed' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                }`}>
+                  {completedOrders.length}
+                </span>
+              )}
+            </div>
+          </button>
+        </nav>
       </div>
 
       {/* Filters */}
@@ -143,11 +208,17 @@ const EntrepreneurOrders: React.FC = () => {
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="all">Alla status</option>
-              <option value="ASSIGNED">Tilldelade</option>
-              <option value="IN_PROGRESS">Pågående</option>
-              <option value="REPORTED">Rapporterade</option>
-              <option value="APPROVED">Godkända</option>
-              <option value="urgent">Brådskande</option>
+              {activeTab === 'active' ? (
+                <>
+                  <option value="ASSIGNED">Tilldelade</option>
+                  <option value="IN_PROGRESS">Pågående</option>
+                  <option value="urgent">Brådskande</option>
+                </>
+              ) : (
+                <>
+                  <option value="COMPLETED">Färdiga</option>
+                </>
+              )}
             </select>
           </div>
         </div>
@@ -158,7 +229,7 @@ const EntrepreneurOrders: React.FC = () => {
         {filteredOrders?.map((order: Order) => (
           <Link
             key={order.id}
-            to={`/contractor/projects/${order.id}`}
+            to={`${basePath}/projects/${order.id}`}
             className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow"
           >
             <div className="flex items-start justify-between mb-3">
@@ -227,7 +298,7 @@ const EntrepreneurOrders: React.FC = () => {
           {statusFilter !== 'all' && !searchTerm && (
             <div className="mt-4">
               <Link
-                to="/contractor/projects"
+                to={`${basePath}/projects`}
                 className="text-blue-600 hover:text-blue-500 text-sm font-medium"
               >
                 ← Visa alla uppdrag

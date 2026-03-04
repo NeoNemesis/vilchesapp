@@ -1,62 +1,96 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
-  ChartBarIcon,
   ClipboardDocumentCheckIcon,
   UserGroupIcon,
   ExclamationTriangleIcon,
   ArrowTrendingUpIcon,
   ClockIcon,
-  PlusIcon,
-  CurrencyDollarIcon,
   CalendarDaysIcon,
   BellIcon,
   CheckCircleIcon,
-  XCircleIcon,
-  EyeIcon,
-  PencilIcon,
   UserPlusIcon,
   DocumentPlusIcon,
+  DocumentTextIcon,
   ChartPieIcon,
   ArrowUpIcon,
   ArrowDownIcon,
   SparklesIcon,
   BuildingOfficeIcon,
-  MapPinIcon
+  MapPinIcon,
+  UserIcon
 } from '@heroicons/react/24/outline';
 import { api } from '../../services/api';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { format } from 'date-fns';
 import { sv } from 'date-fns/locale';
 import { useAuth } from '../../contexts/AuthContext';
+import GoogleAnalyticsWidget from '../../components/analytics/GoogleAnalyticsWidget';
+import N8nAutomationsWidget from '../../components/automations/N8nAutomationsWidget';
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
-  const [selectedPeriod, setSelectedPeriod] = useState('30d');
 
-  const { data: stats } = useQuery({
+  const { data: stats, error: statsError } = useQuery({
     queryKey: ['admin-stats'],
-    queryFn: api.getDashboardStats,
+    queryFn: () => api.getDashboardStats(),
+    retry: 2,
+    staleTime: 30000,
   });
 
-  const { data: recentOrders } = useQuery({
-    queryKey: ['recent-orders'],
-    queryFn: api.getRecentOrders,
+  // Hämta senaste projekt - fallback till alla projekt om API misslyckas
+  const { data: recentOrders, error: recentOrdersError } = useQuery({
+    queryKey: ['recent-projects'],
+    queryFn: async () => {
+      try {
+        return await api.getRecentProjects();
+      } catch {
+        try {
+          const allProjects = await api.getAllProjects();
+          return Array.isArray(allProjects)
+            ? allProjects
+                .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .slice(0, 5)
+            : [];
+        } catch {
+          return [];
+        }
+      }
+    },
+    retry: 1,
+    staleTime: 30000,
   });
 
-  // Hämta verklig analytics-data
-  const { data: analytics, isLoading: analyticsLoading } = useQuery({
-    queryKey: ['analytics', selectedPeriod],
-    queryFn: () => api.getAnalytics(selectedPeriod),
-    enabled: !!selectedPeriod,
+  // Hämta verklig analytics-data (används för statistik-kort)
+  const { data: analytics } = useQuery({
+    queryKey: ['analytics', '30d'],
+    queryFn: () => api.getAnalytics('30d'),
+    staleTime: 60000,
   });
+
+  // Hämta senaste aktiviteter från notifikationer
+  const { data: recentActivities = [] } = useQuery({
+    queryKey: ['recent-activities'],
+    queryFn: api.getRecentActivities,
+    retry: 1,
+    staleTime: 30000,
+  });
+
 
   const projectStatusData = [
     { name: 'Pågående', value: stats?.inProgress || 0, color: '#3B82F6' },
     { name: 'Väntar', value: stats?.unassigned || 0, color: '#EF4444' },
     { name: 'Rapporterade', value: stats?.pendingReports || 0, color: '#10B981' },
-    { name: 'Godkända', value: stats?.approved || 0, color: '#8B5CF6' },
+    { name: 'Färdiga', value: stats?.completed || 0, color: '#8B5CF6' },
+  ];
+
+  const quoteStatusData = [
+    { name: 'Skickade', value: stats?.sentQuotes || 0, color: '#3B82F6' },
+    { name: 'Godkända', value: stats?.acceptedQuotes || 0, color: '#10B981' },
+    { name: 'Nekade', value: stats?.rejectedQuotes || 0, color: '#EF4444' },
+    { name: 'Utkast', value: stats?.draftQuotes || 0, color: '#9CA3AF' },
+    { name: 'Utgångna', value: stats?.expiredQuotes || 0, color: '#F97316' },
   ];
 
   const statCards = [
@@ -112,14 +146,14 @@ const AdminDashboard: React.FC = () => {
       description: 'Lägg till ett nytt projekt',
       icon: DocumentPlusIcon,
       color: 'bg-blue-600 hover:bg-blue-700',
-      link: '/admin/projects/new'
+      link: '/admin/projects'
     },
     {
       name: 'Lägg till entreprenör',
       description: 'Registrera ny entreprenör',
       icon: UserPlusIcon,
       color: 'bg-green-600 hover:bg-green-700',
-      link: '/admin/contractors/new'
+      link: '/admin/contractors?new=true'
     },
     {
       name: 'Se alla rapporter',
@@ -145,7 +179,7 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div className="flex items-center">
                 <BuildingOfficeIcon className="h-4 w-4 mr-2" />
-                Vilches Entreprenad AB
+                Dashboard
               </div>
             </div>
           </div>
@@ -221,65 +255,8 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Enhanced Charts and Analytics */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Revenue Chart */}
-        <div className="lg:col-span-2 bg-white shadow-lg rounded-xl p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 flex items-center">
-              <ChartBarIcon className="h-5 w-5 mr-2 text-blue-600" />
-              Intäkter & Projekt
-            </h3>
-            <div className="flex space-x-2">
-              {['7d', '30d', '90d'].map((period) => (
-                <button
-                  key={period}
-                  onClick={() => setSelectedPeriod(period)}
-                  className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                    selectedPeriod === period
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {period}
-                </button>
-              ))}
-            </div>
-          </div>
-          {analyticsLoading ? (
-            <div className="flex justify-center items-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={analytics?.chartData || []}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="period" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#f9fafb', 
-                    border: 'none', 
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }}
-                  formatter={(value, name) => [
-                    name === 'revenue' ? `${value} kr` : value,
-                    name === 'revenue' ? 'Intäkter' : 'Projekt'
-                  ]}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="revenue" 
-                  stroke="#3b82f6" 
-                  strokeWidth={3}
-                  dot={{ fill: '#3b82f6', strokeWidth: 2, r: 4 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
+      {/* Charts and Automations */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Project Status Pie Chart */}
         <div className="bg-white shadow-lg rounded-xl p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
@@ -308,8 +285,8 @@ const AdminDashboard: React.FC = () => {
             {projectStatusData.map((item, index) => (
               <div key={index} className="flex items-center justify-between text-sm">
                 <div className="flex items-center">
-                  <div 
-                    className="w-3 h-3 rounded-full mr-2" 
+                  <div
+                    className="w-3 h-3 rounded-full mr-2"
                     style={{ backgroundColor: item.color }}
                   ></div>
                   <span className="text-gray-600">{item.name}</span>
@@ -318,8 +295,78 @@ const AdminDashboard: React.FC = () => {
               </div>
             ))}
           </div>
+          {/* Total */}
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-600">Totalt projekt</span>
+              <span className="text-xl font-bold text-gray-900">
+                {projectStatusData.reduce((sum, item) => sum + item.value, 0)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Quote Status Pie Chart */}
+        <div className="bg-white shadow-lg rounded-xl p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+            <DocumentTextIcon className="h-5 w-5 mr-2 text-blue-600" />
+            Offertstatus
+          </h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie
+                data={quoteStatusData}
+                cx="50%"
+                cy="50%"
+                innerRadius={40}
+                outerRadius={80}
+                paddingAngle={5}
+                dataKey="value"
+              >
+                {quoteStatusData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="mt-4 space-y-2">
+            {quoteStatusData.map((item, index) => (
+              <div key={index} className="flex items-center justify-between text-sm">
+                <div className="flex items-center">
+                  <div
+                    className="w-3 h-3 rounded-full mr-2"
+                    style={{ backgroundColor: item.color }}
+                  ></div>
+                  <span className="text-gray-600">{item.name}</span>
+                </div>
+                <span className="font-semibold text-gray-900">{item.value}</span>
+              </div>
+            ))}
+          </div>
+          {/* Total and acceptance rate */}
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-600">Totalt offerter</span>
+              <span className="text-xl font-bold text-gray-900">
+                {stats?.totalQuotes || 0}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-600">Acceptansgrad</span>
+              <span className="text-lg font-semibold text-green-600">
+                {stats?.quoteAcceptanceRate || 0}%
+              </span>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* n8n Automations Widget */}
+      <N8nAutomationsWidget />
+
+      {/* Google Analytics från Website */}
+      <GoogleAnalyticsWidget defaultDays={30} />
 
       {/* Recent Activity & Projects */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -341,7 +388,12 @@ const AdminDashboard: React.FC = () => {
             </div>
           </div>
           <div className="max-h-80 overflow-y-auto">
-            {recentOrders?.slice(0, 5).map((order: any) => (
+            {recentOrdersError ? (
+              <div className="px-6 py-4 text-center text-red-600">
+                <p>Fel vid hämtning av senaste projekt</p>
+                <p className="text-sm text-red-500 mt-1">{recentOrdersError.message}</p>
+              </div>
+            ) : Array.isArray(recentOrders) ? recentOrders.slice(0, 5).map((order: any) => (
               <div key={order.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
                 <Link to={`/admin/projects/${order.id}`} className="block">
                   <div className="flex items-center justify-between">
@@ -375,7 +427,11 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 </Link>
               </div>
-            ))}
+            )) : (
+              <div className="px-6 py-4 text-center text-gray-500">
+                <p>Inga projekt att visa</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -389,66 +445,55 @@ const AdminDashboard: React.FC = () => {
           </div>
           <div className="max-h-80 overflow-y-auto">
             <div className="px-6 py-4 space-y-4">
-              {/* Mock activity items */}
-              <div className="flex items-start space-x-3">
-                <div className="bg-green-100 rounded-full p-1">
-                  <CheckCircleIcon className="h-4 w-4 text-green-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900">
-                    <span className="font-medium">Juan Pablo</span> skickade in rapport för "Badrumsrenovering Södermalm"
-                  </p>
-                  <p className="text-xs text-gray-500">2 timmar sedan</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start space-x-3">
-                <div className="bg-blue-100 rounded-full p-1">
-                  <DocumentPlusIcon className="h-4 w-4 text-blue-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900">
-                    Nytt projekt skapat: "Köksinredning Vasastan"
-                  </p>
-                  <p className="text-xs text-gray-500">4 timmar sedan</p>
-                </div>
-              </div>
+              {Array.isArray(recentActivities) && recentActivities.length > 0 ? (
+                recentActivities.slice(0, 5).map((activity: any) => {
+                  // Bestäm ikon och färg baserat på aktivitetstyp
+                  const getActivityIcon = (type: string) => {
+                    switch (type) {
+                      case 'PROJECT_ASSIGNED': return { Icon: UserPlusIcon, color: 'bg-blue-100 text-blue-600' };
+                      case 'REPORT_SUBMITTED': return { Icon: DocumentPlusIcon, color: 'bg-green-100 text-green-600' };
+                      case 'PROJECT_COMPLETED': return { Icon: CheckCircleIcon, color: 'bg-green-100 text-green-600' };
+                      case 'LOGIN_SUCCESS': return { Icon: UserIcon, color: 'bg-gray-100 text-gray-600' };
+                      case 'DEADLINE_REMINDER': return { Icon: ClockIcon, color: 'bg-yellow-100 text-yellow-600' };
+                      default: return { Icon: BellIcon, color: 'bg-gray-100 text-gray-600' };
+                    }
+                  };
 
-              <div className="flex items-start space-x-3">
-                <div className="bg-yellow-100 rounded-full p-1">
-                  <UserPlusIcon className="h-4 w-4 text-yellow-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900">
-                    <span className="font-medium">Maria Andersson</span> registrerades som ny entreprenör
-                  </p>
-                  <p className="text-xs text-gray-500">1 dag sedan</p>
-                </div>
-              </div>
+                  const { Icon, color } = getActivityIcon(activity.type);
 
-              <div className="flex items-start space-x-3">
-                <div className="bg-purple-100 rounded-full p-1">
-                  <PencilIcon className="h-4 w-4 text-purple-600" />
+                  return (
+                    <div key={activity.id} className="flex items-start space-x-3">
+                      <div className={`rounded-full p-1 ${color}`}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900">
+                          {activity.title}
+                          {activity.project && (
+                            <span className="text-gray-600"> - {activity.project}</span>
+                          )}
+                        </p>
+                        {activity.message && activity.message !== activity.title && (
+                          <p className="text-xs text-gray-600 mt-1">
+                            {activity.message}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          {format(new Date(activity.timestamp), 'd MMM HH:mm', { locale: sv })}
+                          {activity.user && activity.user !== 'System' && (
+                            <span> • {activity.user}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center text-gray-500 py-8">
+                  <BellIcon className="h-8 w-8 mx-auto text-gray-300 mb-2" />
+                  <p>Inga aktiviteter att visa</p>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900">
-                    Projekt "Målning Östermalm" uppdaterades
-                  </p>
-                  <p className="text-xs text-gray-500">2 dagar sedan</p>
-                </div>
-              </div>
-
-              <div className="flex items-start space-x-3">
-                <div className="bg-red-100 rounded-full p-1">
-                  <ExclamationTriangleIcon className="h-4 w-4 text-red-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900">
-                    <span className="font-medium">Erik Nilsson</span> avböjde projekt "Golvläggning Gamla Stan"
-                  </p>
-                  <p className="text-xs text-gray-500">3 dagar sedan</p>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

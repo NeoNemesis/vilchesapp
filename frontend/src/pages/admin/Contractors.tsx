@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { 
   PlusIcon, 
   PencilIcon, 
@@ -151,7 +152,17 @@ const ContractorModal: React.FC<{
 const AdminContractors: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingContractor, setEditingContractor] = useState<Contractor | undefined>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+
+  // Öppna modal automatiskt om ?new=true finns i URL
+  useEffect(() => {
+    if (searchParams.get('new') === 'true') {
+      setIsModalOpen(true);
+      // Ta bort parametern från URL efter att modal öppnats
+      setSearchParams({});
+    }
+  }, [searchParams, setSearchParams]);
 
   // Hämta entreprenörer från API
   const { data: contractors = [], isLoading } = useQuery({

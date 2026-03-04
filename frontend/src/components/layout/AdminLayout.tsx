@@ -8,6 +8,15 @@ import {
   XMarkIcon,
   ArrowRightOnRectangleIcon,
   UsersIcon,
+  CogIcon,
+  CalendarDaysIcon,
+  MapPinIcon,
+  CurrencyDollarIcon,
+  CubeIcon,
+  DocumentDuplicateIcon,
+  ShieldCheckIcon,
+  UserGroupIcon,
+  ClockIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -18,8 +27,17 @@ const AdminLayout: React.FC = () => {
   const navigation = [
     { name: 'Dashboard', href: '/admin', icon: HomeIcon },
     { name: 'Projekt', href: '/admin/projects', icon: ClipboardDocumentListIcon },
+    { name: 'Offerter', href: '/admin/quotes', icon: CurrencyDollarIcon },
+    { name: 'Offertmallar', href: '/admin/quote-templates', icon: DocumentDuplicateIcon },
+    { name: 'Material', href: '/admin/materials', icon: CubeIcon },
+    { name: 'Kalender', href: '/admin/calendar', icon: CalendarDaysIcon },
+    { name: 'Karta', href: '/admin/map', icon: MapPinIcon },
     { name: 'Rapporter', href: '/admin/reports', icon: DocumentTextIcon },
+    { name: 'Personal', href: '/admin/employees', icon: UserGroupIcon },
+    { name: 'Tidsrapporter', href: '/admin/time-reports', icon: ClockIcon },
     { name: 'Underleverantörer', href: '/admin/contractors', icon: UsersIcon },
+    { name: 'Aktivitetsloggar', href: '/admin/activity-logs', icon: ShieldCheckIcon },
+    { name: 'Inställningar', href: '/admin/settings', icon: CogIcon },
   ];
 
   return (
@@ -71,7 +89,7 @@ const AdminLayout: React.FC = () => {
       <div className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
         <div className="flex flex-col flex-1 bg-white border-r border-gray-200">
           <div className="flex h-16 items-center px-6 border-b border-gray-200">
-            <h1 className="text-xl font-bold text-gray-900">Vilches Entreprenad</h1>
+            <h1 className="text-xl font-bold text-gray-900">VilchesApp</h1>
           </div>
           <nav className="flex-1 px-3 py-4">
             {navigation.map((item) => (
@@ -110,7 +128,7 @@ const AdminLayout: React.FC = () => {
             <Bars3Icon className="h-6 w-6" />
           </button>
           <div className="flex-1">
-            <h1 className="text-lg font-semibold">Vilches Entreprenad</h1>
+            <h1 className="text-lg font-semibold">VilchesApp</h1>
           </div>
         </div>
 

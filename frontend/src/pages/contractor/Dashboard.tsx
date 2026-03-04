@@ -18,21 +18,9 @@ import {
 } from '@heroicons/react/24/outline';
 import { api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { Project } from '../../types';
 import { format } from 'date-fns';
 import { sv } from 'date-fns/locale';
-
-interface Project {
-  id: string;
-  title: string;
-  description: string;
-  address: string;
-  status: 'ASSIGNED' | 'IN_PROGRESS' | 'REPORTED' | 'APPROVED';
-  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-  deadline?: string;
-  clientName: string;
-  createdAt: string;
-  estimatedHours?: number;
-}
 
 const ContractorDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -73,17 +61,18 @@ const ContractorDashboard: React.FC = () => {
     },
   });
 
-  // Filtrera projekt baserat på status
-  const assignedProjects = projects.filter((p: Project) => p.status === 'ASSIGNED');
-  const inProgressProjects = projects.filter((p: Project) => p.status === 'IN_PROGRESS');
-  const reportedProjects = projects.filter((p: Project) => p.status === 'REPORTED');
-  const urgentProjects = projects.filter((p: Project) => p.priority === 'URGENT' || p.priority === 'HIGH');
+  // Filtrera projekt baserat på status - säker filtrering
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const assignedProjects = safeProjects.filter((p: Project) => p?.status === 'ASSIGNED');
+  const inProgressProjects = safeProjects.filter((p: Project) => p?.status === 'IN_PROGRESS');
+  const reportedProjects = safeProjects.filter((p: Project) => p?.status === 'AWAITING_REVIEW');
+  const urgentProjects = safeProjects.filter((p: Project) => p?.priority === 'URGENT' || p?.priority === 'HIGH');
 
   const getStatusBadge = (status: string) => {
     const statusConfig = {
       ASSIGNED: { bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Tilldelad', icon: BellIcon },
       IN_PROGRESS: { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Pågående', icon: ClockIcon },
-      REPORTED: { bg: 'bg-green-100', text: 'text-green-800', label: 'Rapporterad', icon: CheckCircleIcon },
+      AWAITING_REVIEW: { bg: 'bg-green-100', text: 'text-green-800', label: 'Väntar granskning', icon: CheckCircleIcon },
       APPROVED: { bg: 'bg-purple-100', text: 'text-purple-800', label: 'Godkänd', icon: CheckCircleIcon },
     };
     const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.ASSIGNED;
@@ -137,8 +126,14 @@ const ContractorDashboard: React.FC = () => {
             <h1 className="text-2xl font-bold">Välkommen, {user?.name}!</h1>
             <p className="text-blue-100 mt-1">Här är en översikt över dina projekt och uppdrag.</p>
           </div>
-          <div className="hidden md:block">
-            <UserIcon className="h-16 w-16 text-blue-200" />
+          <div className="text-right">
+            <div className="text-blue-100 text-sm mb-1">Idag</div>
+            <div className="text-xl font-semibold">
+              {format(new Date(), 'EEEE', { locale: sv })}
+            </div>
+            <div className="text-lg">
+              {format(new Date(), 'd MMMM yyyy', { locale: sv })}
+            </div>
           </div>
         </div>
       </div>
@@ -210,7 +205,7 @@ const ContractorDashboard: React.FC = () => {
           </div>
           <div className="bg-green-50 px-5 py-3">
             <div className="text-sm">
-              <Link to="/contractor/projects?status=REPORTED" className="font-medium text-green-700 hover:text-green-600">
+              <Link to="/contractor/projects?status=AWAITING_REVIEW" className="font-medium text-green-700 hover:text-green-600">
                 Se rapporter →
               </Link>
             </div>

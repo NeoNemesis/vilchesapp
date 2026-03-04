@@ -1,7 +1,7 @@
 {
-  "name": "vilches-property-management",
+  "name": "vilchesapp",
   "version": "1.0.0",
-  "description": "Ett professionellt projektledningssystem för bygg- och fastighetsentreprenörer",
+  "description": "Professional project management system for contractors and service companies",
   "main": "index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
@@ -34,17 +34,18 @@
     "bygg",
     "fastighet"
   ],
-  "author": "Vilches Entreprenad AB",
+  "author": "Victor Vilches (NeoNemesis)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/vilches-property-management.git"
+    "url": "https://github.com/NeoNemesis/vilchesapp.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/vilches-property-management/issues"
+    "url": "https://github.com/NeoNemesis/vilchesapp/issues"
   },
-  "homepage": "https://github.com/yourusername/vilches-property-management#readme",
+  "homepage": "https://github.com/NeoNemesis/vilchesapp#readme",
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
     "concurrently": "^8.2.2"
   },
   "workspaces": [

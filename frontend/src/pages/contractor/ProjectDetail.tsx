@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { 
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
   MapPinIcon,
   CalendarDaysIcon,
   UserIcon,
@@ -13,21 +13,46 @@ import {
   DocumentTextIcon,
   ArrowLeftIcon,
   XMarkIcon,
-  MagnifyingGlassPlusIcon
+  MagnifyingGlassPlusIcon,
+  CameraIcon,
+  ArrowUpTrayIcon,
 } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
 import { api } from '../../services/api';
+import { useBasePath } from '../../hooks/useBasePath';
 import { format } from 'date-fns';
 import { sv } from 'date-fns/locale';
 
 const ContractorProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
+  const basePath = useBasePath();
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [imageError, setImageError] = useState<string[]>([]);
-  
-  const { data: project, isLoading } = useQuery({ 
-    queryKey: ['project', id], 
-    queryFn: () => api.getProjectDetail(id!) 
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: project, isLoading } = useQuery({
+    queryKey: ['project', id],
+    queryFn: () => api.getProjectDetail(id!)
   });
+
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !id) return;
+    setUploading(true);
+    try {
+      await api.uploadProjectImages(id, Array.from(files));
+      queryClient.invalidateQueries({ queryKey: ['project', id] });
+      toast.success(`${files.length} bild(er) uppladdade`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Kunde inte ladda upp bilder');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+    }
+  };
 
   const handleImageError = (imageId: string, imageUrl?: string) => {
     console.error('Failed to load image:', imageId, 'URL:', imageUrl);
@@ -37,26 +62,22 @@ const ContractorProjectDetail: React.FC = () => {
   const getImageUrl = (image: any) => {
     // Använd base64-data om det finns (föredraget för nya projekt)
     if (image.base64Data) {
-      console.log('✅ Using base64 data for image:', image.originalName);
       return image.base64Data;
     }
-    
+
     // Fallback till bildproxy-endpoint för äldre projekt eller om base64 misslyckas
     const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
     const filename = image.filename || image.url.split('/').pop();
     const imageUrl = `${baseUrl}/projects/image/${filename}`;
-    
-    console.log('⚡ Using proxy endpoint for image:', image.originalName, '→', imageUrl);
+
     return imageUrl;
   };
 
   const openImageModal = (image: any) => {
-    console.log('Opening image modal for:', image.originalName);
     setSelectedImage(image);
   };
 
   const closeImageModal = () => {
-    console.log('Closing image modal');
     setSelectedImage(null);
   };
 
@@ -99,7 +120,7 @@ const ContractorProjectDetail: React.FC = () => {
         <p className="mt-1 text-sm text-gray-500">Det begärda projektet kunde inte hittas.</p>
         <div className="mt-6">
           <Link
-            to="/contractor/projects"
+            to={`${basePath}/projects`}
             className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
           >
             <ArrowLeftIcon className="-ml-1 mr-2 h-5 w-5" />
@@ -138,7 +159,7 @@ const ContractorProjectDetail: React.FC = () => {
       {/* Header */}
       <div className="mb-6">
         <Link
-          to="/contractor/projects"
+          to={`${basePath}/projects`}
           className="inline-flex items-center text-sm font-medium text-gray-500 hover:text-gray-700 mb-4"
         >
           <ArrowLeftIcon className="-ml-1 mr-1 h-5 w-5" />
@@ -166,13 +187,60 @@ const ContractorProjectDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* Project Images */}
-          {project.images && project.images.length > 0 && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          {/* Upload buttons + Project Images */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center">
                 <PhotoIcon className="h-5 w-5 mr-2" />
-                Projektbilder ({project.images.length})
+                Projektbilder ({project.images?.length || 0})
               </h2>
+              <div className="flex items-center gap-2">
+                {/* Camera button (mobile) */}
+                <button
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  <CameraIcon className="h-4 w-4" />
+                  <span className="hidden sm:inline">Ta bild</span>
+                </button>
+                {/* File upload button */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  <ArrowUpTrayIcon className="h-4 w-4" />
+                  <span className="hidden sm:inline">Välj bilder</span>
+                </button>
+              </div>
+              {/* Hidden file inputs */}
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => handleFileUpload(e.target.files)}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                onChange={e => handleFileUpload(e.target.files)}
+              />
+            </div>
+
+            {uploading && (
+              <div className="flex items-center gap-2 text-sm text-blue-600 mb-4">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                Laddar upp bilder...
+              </div>
+            )}
+
+            {project.images && project.images.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {project.images.map((image: any, index: number) => (
                   <div key={image.id} className="relative group">
@@ -210,8 +278,13 @@ const ContractorProjectDetail: React.FC = () => {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="text-center py-8 text-gray-400">
+                <PhotoIcon className="h-12 w-12 mx-auto mb-2" />
+                <p className="text-sm">Inga bilder ännu. Ta en bild eller ladda upp!</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Sidebar */}
@@ -311,7 +384,7 @@ const ContractorProjectDetail: React.FC = () => {
                   Projektet är tilldelat till dig. Klicka nedan för att påbörja arbetet och skicka en rapport.
                 </p>
                 <Link
-                  to={`/contractor/projects/${project.id}/report`}
+                  to={`${basePath}/projects/${project.id}/report`}
                   className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   <DocumentTextIcon className="-ml-1 mr-2 h-5 w-5" />
@@ -326,7 +399,7 @@ const ContractorProjectDetail: React.FC = () => {
                   Projektet pågår. Du kan uppdatera din rapport eller skicka en ny.
                 </p>
                 <Link
-                  to={`/contractor/projects/${project.id}/report`}
+                  to={`${basePath}/projects/${project.id}/report`}
                   className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
                 >
                   Uppdatera rapport
@@ -387,9 +460,6 @@ const ContractorProjectDetail: React.FC = () => {
                     style={{ maxHeight: '70vh' }}
                     onError={() => {
                       console.error('Failed to load image in modal:', selectedImage.url);
-                    }}
-                    onLoad={() => {
-                      console.log('Image loaded successfully in modal');
                     }}
                   />
                 </div>

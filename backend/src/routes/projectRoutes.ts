@@ -1,14 +1,15 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import nodemailer from 'nodemailer';
 import multer from 'multer';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { authenticateToken } from './authRoutes';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { EmailNotificationService } from '../services/emailNotificationService';
+import { processUploadedImages } from '../services/imageProcessor';
+import { prisma } from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Validation schemas
 const createProjectSchema = z.object({
@@ -25,6 +26,12 @@ const createProjectSchema = z.object({
   assignedToId: z.string().optional(), // Om direkt tilldelning
 });
 
+const numericPreprocess = (val: unknown) => {
+  if (val === '' || val === undefined || val === null) return undefined;
+  const num = Number(val);
+  return isNaN(num) ? val : num;
+};
+
 const updateProjectSchema = z.object({
   title: z.string().min(3).optional(),
   description: z.string().min(10).optional(),
@@ -33,8 +40,8 @@ const updateProjectSchema = z.object({
   clientPhone: z.string().optional(),
   address: z.string().min(5).optional(),
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).optional(),
-  estimatedHours: z.number().min(0.5).optional(),
-  estimatedCost: z.number().min(0).optional(),
+  estimatedHours: z.preprocess(numericPreprocess, z.number().min(0.5).optional()),
+  estimatedCost: z.preprocess(numericPreprocess, z.number().min(0).optional()),
   deadline: z.string().datetime().optional(),
   status: z.enum(['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']).optional(),
   assignedToId: z.string().nullable().optional(),
@@ -43,7 +50,12 @@ const updateProjectSchema = z.object({
 // Multer konfiguration för bilduppladdning
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads/projects');
+    // Bestäm upload-mapp baserat på URL
+    const isReport = req.url.includes('/report');
+    const uploadDir = isReport 
+      ? path.join(__dirname, '../../uploads/reports')
+      : path.join(__dirname, '../../uploads/projects');
+    
     try {
       await fs.mkdir(uploadDir, { recursive: true });
       cb(null, uploadDir);
@@ -53,15 +65,16 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `project-${uniqueSuffix}${path.extname(file.originalname)}`);
+    const prefix = req.url.includes('/report') ? 'report-' : 'project-';
+    cb(null, `${prefix}${uniqueSuffix}${path.extname(file.originalname)}`);
   }
 });
 
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB
-    files: 5 // Max 5 filer
+    fileSize: 10 * 1024 * 1024, // 10MB för rapporter
+    files: 10 // Max 10 filer för rapporter
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
@@ -74,7 +87,27 @@ const upload = multer({
 });
 
 // GET /api/projects - Hämta alla projekt (för admin)
-router.get('/', async (req, res) => {
+
+// 🔒 Helper function to filter cost data for contractors
+function filterCostDataForContractor(project: any, userRole: string) {
+  if (userRole === 'CONTRACTOR' || userRole === 'EMPLOYEE') {
+    const { estimatedCost, estimatedHours, ...projectWithoutCost } = project;
+    return projectWithoutCost;
+  }
+  return project;
+}
+
+function filterCostDataForContractorArray(projects: any[], userRole: string) {
+  if (userRole === 'CONTRACTOR' || userRole === 'EMPLOYEE') {
+    return projects.map(p => {
+      const { estimatedCost, estimatedHours, ...projectWithoutCost } = p;
+      return projectWithoutCost;
+    });
+  }
+  return projects;
+}
+
+router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const projects = await prisma.project.findMany({
       include: {
@@ -90,6 +123,23 @@ router.get('/', async (req, res) => {
           select: {
             id: true,
             createdAt: true,
+          }
+        },
+        teamMembers: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                company: true,
+                role: true
+              }
+            }
+          },
+          orderBy: {
+            assignedAt: 'asc'
           }
         },
         _count: {
@@ -120,17 +170,31 @@ router.get('/my', authenticateToken, async (req, res) => {
     const userId = (req as any).user.userId;
     const userRole = (req as any).user.role;
 
-    // Endast contractors kan använda denna endpoint
-    if (userRole !== 'CONTRACTOR') {
+    // Contractors, employees och admins kan använda denna endpoint
+    if (userRole !== 'CONTRACTOR' && userRole !== 'EMPLOYEE' && userRole !== 'ADMIN') {
       return res.status(403).json({ 
-        message: 'Endast contractors kan hämta sina egna projekt'
+        success: false,
+        message: 'Endast contractors och admins kan hämta projekt'
       });
     }
 
+    // För admins: visa alla projekt, för contractors/employees: projekt de är tilldelade ELLER teammedlem i
+    const whereClause: any = userRole === 'ADMIN'
+      ? {}
+      : {
+          OR: [
+            { assignedToId: userId },
+            { teamMembers: { some: { userId: userId } } }
+          ],
+          status: {
+            not: {
+              in: ['COMPLETED', 'CANCELLED']
+            }
+          }
+        };
+    
     const projects = await prisma.project.findMany({
-      where: {
-        assignedToId: userId
-      },
+      where: whereClause,
       include: {
         assignedTo: {
           select: {
@@ -146,6 +210,23 @@ router.get('/my', authenticateToken, async (req, res) => {
             createdAt: true,
           }
         },
+        teamMembers: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                company: true,
+                role: true
+              }
+            }
+          },
+          orderBy: {
+            assignedAt: 'asc'
+          }
+        },
         _count: {
           select: {
             reports: true,
@@ -158,7 +239,9 @@ router.get('/my', authenticateToken, async (req, res) => {
       }
     });
 
-    res.json(projects);
+    // 🔒 Filtrera bort kostnadsdata för contractors
+    const filteredProjects = filterCostDataForContractorArray(projects, userRole);
+    res.json(filteredProjects);
   } catch (error) {
     console.error('Error fetching my projects:', error);
     res.status(500).json({ 
@@ -168,8 +251,166 @@ router.get('/my', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/projects/my/completed - Hämta mina färdiga projekt (för contractors)
+router.get('/my/completed', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const userRole = (req as any).user.role;
+
+    // Endast contractors kan använda denna endpoint
+    if (userRole !== 'CONTRACTOR' && userRole !== 'EMPLOYEE') {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Endast contractors kan hämta färdiga projekt'
+      });
+    }
+    
+    const completedProjects = await prisma.project.findMany({
+      where: {
+        OR: [
+          { assignedToId: userId },
+          { teamMembers: { some: { userId: userId } } }
+        ],
+        status: 'COMPLETED'
+      },
+      include: {
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            company: true,
+          }
+        },
+        reports: {
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+          }
+        },
+        teamMembers: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                company: true,
+                role: true
+              }
+            }
+          },
+          orderBy: {
+            assignedAt: 'asc'
+          }
+        },
+        _count: {
+          select: {
+            reports: true,
+            images: true,
+          }
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc'
+      }
+    });
+
+    res.json(completedProjects);
+  } catch (error) {
+    console.error('Error fetching completed projects:', error);
+    res.status(500).json({ 
+      message: 'Kunde inte hämta färdiga projekt',
+      error: error instanceof Error ? error.message : 'Okänt fel'
+    });
+  }
+});
+
+// GET /api/projects/recent - Hämta senaste projekten för dashboard
+router.get('/recent', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const userRole = (req as any).user.role;
+    
+    const whereClause = userRole === 'ADMIN' ? {} : {
+      OR: [
+        { assignedToId: userId },
+        { teamMembers: { some: { userId: userId } } }
+      ]
+    };
+
+    const recentProjects = await prisma.project.findMany({
+      where: whereClause,
+      take: 5,
+      include: {
+        assignedTo: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            company: true,
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    res.json(recentProjects);
+  } catch (error) {
+    console.error('Error fetching recent projects:', error);
+    res.status(500).json({ 
+      message: 'Kunde inte hämta senaste projekt',
+      error: error instanceof Error ? error.message : 'Okänt fel'
+    });
+  }
+});
+
+// GET /api/projects/analytics - Hämta analytics-data för dashboard
+router.get('/analytics', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const userRole = (req as any).user.role;
+
+    const { period = '30d' } = req.query;
+    
+    // Enkel analytics för både admin och contractor
+    const whereClause = userRole === 'ADMIN' ? {} : {
+      OR: [
+        { assignedToId: userId },
+        { teamMembers: { some: { userId: userId } } }
+      ]
+    };
+    
+    const analytics = {
+      period: period,
+      totalProjects: await prisma.project.count({ where: whereClause }),
+      completedProjects: await prisma.project.count({
+        where: { ...whereClause, status: 'COMPLETED' }
+      }),
+      inProgressProjects: await prisma.project.count({ 
+        where: { ...whereClause, status: 'IN_PROGRESS' } 
+      }),
+      pendingProjects: await prisma.project.count({ 
+        where: { ...whereClause, status: 'PENDING' } 
+      })
+    };
+    
+    res.json(analytics);
+  } catch (error) {
+    console.error('Error fetching analytics:', error);
+    res.status(500).json({ 
+      message: 'Kunde inte hämta analytics',
+      error: error instanceof Error ? error.message : 'Okänt fel'
+    });
+  }
+});
+
 // GET /api/projects/dashboard-stats - Hämta komplett dashboard-statistik
-router.get('/dashboard-stats', async (req, res) => {
+router.get('/dashboard-stats', authenticateToken, async (req, res) => {
   try {
     // Projekt statistik
     const [totalProjects, pendingProjects, assignedProjects, inProgressProjects, completedProjects] = await Promise.all([
@@ -188,19 +429,29 @@ router.get('/dashboard-stats', async (req, res) => {
 
     // Projekt som väntar på rapporter (ASSIGNED eller IN_PROGRESS)
     const pendingReports = await prisma.project.count({
-      where: { 
+      where: {
         status: {
           in: ['ASSIGNED', 'IN_PROGRESS']
         }
       }
     });
 
+    // Offert statistik
+    const [totalQuotes, draftQuotes, sentQuotes, acceptedQuotes, rejectedQuotes, expiredQuotes] = await Promise.all([
+      prisma.quote.count(),
+      prisma.quote.count({ where: { status: 'DRAFT' } }),
+      prisma.quote.count({ where: { status: 'SENT' } }),
+      prisma.quote.count({ where: { status: 'ACCEPTED' } }),
+      prisma.quote.count({ where: { status: 'REJECTED' } }),
+      prisma.quote.count({ where: { status: 'EXPIRED' } }),
+    ]);
+
     // Veckostatistik för diagram (senaste 8 veckorna)
     const eightWeeksAgo = new Date();
     eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56);
 
     const weeklyProjects = await prisma.$queryRaw`
-      SELECT 
+      SELECT
         DATE_TRUNC('week', "createdAt") as week,
         COUNT(*)::int as count
       FROM "Project"
@@ -211,9 +462,9 @@ router.get('/dashboard-stats', async (req, res) => {
 
     // Formatera veckodata
     const formattedWeeklyData = (weeklyProjects as any[]).map(item => ({
-      week: new Date(item.week).toLocaleDateString('sv-SE', { 
-        month: 'short', 
-        day: 'numeric' 
+      week: new Date(item.week).toLocaleDateString('sv-SE', {
+        month: 'short',
+        day: 'numeric'
       }),
       count: item.count
     }));
@@ -225,20 +476,29 @@ router.get('/dashboard-stats', async (req, res) => {
       assigned: assignedProjects,
       inProgress: inProgressProjects,
       completed: completedProjects,
-      
-      // Entreprenör statistik  
+
+      // Entreprenör statistik
       totalEntrepreneurs,
       activeEntrepreneurs,
-      
+
       // Rapporter
       pendingReports,
-      
+
+      // Offert statistik
+      totalQuotes,
+      draftQuotes,
+      sentQuotes,
+      acceptedQuotes,
+      rejectedQuotes,
+      expiredQuotes,
+
       // Diagram data
       weeklyOrders: formattedWeeklyData,
-      
+
       // Beräknade värden
       completionRate: totalProjects > 0 ? Math.round((completedProjects / totalProjects) * 100) : 0,
-      assignmentRate: totalProjects > 0 ? Math.round(((assignedProjects + inProgressProjects) / totalProjects) * 100) : 0
+      assignmentRate: totalProjects > 0 ? Math.round(((assignedProjects + inProgressProjects) / totalProjects) * 100) : 0,
+      quoteAcceptanceRate: totalQuotes > 0 ? Math.round((acceptedQuotes / totalQuotes) * 100) : 0
     };
 
     console.log('Dashboard stats:', dashboardStats);
@@ -253,8 +513,337 @@ router.get('/dashboard-stats', async (req, res) => {
   }
 });
 
+// GET /api/projects/reports/:id - Hämta enskild rapport (för admin)
+router.get('/reports/:reportId', authenticateToken, async (req, res) => {
+  try {
+    const { reportId } = req.params;
+    const userRole = (req as any).user.role;
+
+    // Endast admins kan se alla rapporter
+    if (userRole !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Åtkomst nekad'
+      });
+    }
+
+    const report = await prisma.report.findUnique({
+      where: { id: reportId },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        project: {
+          select: {
+            id: true,
+            title: true,
+            clientName: true,
+            clientEmail: true,
+            address: true
+          }
+        },
+        images: {
+          select: {
+            id: true,
+            filename: true,
+            originalName: true,
+            url: true,
+            description: true,
+            uploadedAt: true
+          }
+        }
+      }
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rapport hittades inte'
+      });
+    }
+
+    res.json({
+      success: true,
+      report
+    });
+
+  } catch (error) {
+    console.error('Error fetching report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Kunde inte hämta rapport'
+    });
+  }
+});
+
+// POST /api/projects/reports/:id/approve - Godkänn rapport (för admin)
+router.post('/reports/:reportId/approve', authenticateToken, async (req, res) => {
+  try {
+    const { reportId } = req.params;
+    const { sendToClient } = req.body;
+    const userRole = (req as any).user.role;
+
+    // Endast admins kan godkänna rapporter
+    if (userRole !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Åtkomst nekad'
+      });
+    }
+
+    // Hämta rapporten med projektinfo
+    const report = await prisma.report.findUnique({
+      where: { id: reportId },
+      include: {
+        project: {
+          include: {
+            assignedTo: true
+          }
+        },
+        author: true
+      }
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rapport hittades inte'
+      });
+    }
+
+    if (report.status !== 'SUBMITTED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Endast inlämnade rapporter kan godkännas'
+      });
+    }
+
+    // Uppdatera rapport status
+    const updatedReport = await prisma.report.update({
+      where: { id: reportId },
+      data: {
+        status: 'APPROVED'
+      }
+    });
+
+    // Markera projektet som avslutat
+    await prisma.project.update({
+      where: { id: report.projectId },
+      data: {
+        status: 'COMPLETED'
+      }
+    });
+
+    // Skapa notifikation
+    try {
+      await prisma.notification.create({
+        data: {
+          type: 'GENERAL',
+          subject: `Rapport godkänd: ${report.project.title}`,
+          message: `Rapporten för projektet "${report.project.title}" har godkänts och projektet är nu avslutat`,
+          projectId: report.projectId,
+          userId: report.authorId
+        }
+      });
+    } catch (notificationError) {
+      console.error('Failed to create approval notification:', notificationError);
+    }
+
+    // Skicka rapportsammanfattning till kund om sendToClient är true
+    if (sendToClient && report.project.clientEmail) {
+      try {
+        await EmailNotificationService.sendReportToClient(
+          report.project.clientEmail,
+          report.project.clientName,
+          {
+            title: report.project.title,
+            address: report.project.address,
+            projectNumber: report.project.projectNumber
+          },
+          {
+            title: report.title,
+            workDescription: report.workDescription,
+            hoursWorked: report.hoursWorked,
+            progressPercent: report.progressPercent,
+            nextSteps: report.nextSteps
+          }
+        );
+      } catch (emailError) {
+        console.error('Kunde inte skicka rapportmail till kund:', emailError);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: sendToClient ? 'Rapport godkänd och skickad till kund' : 'Rapport godkänd',
+      report: updatedReport
+    });
+
+  } catch (error) {
+    console.error('Error approving report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Kunde inte godkänna rapport'
+    });
+  }
+});
+
+// POST /api/projects/reports/:id/reject - Avvisa rapport (för admin)
+router.post('/reports/:reportId/reject', authenticateToken, async (req, res) => {
+  try {
+    const { reportId } = req.params;
+    const { reason } = req.body;
+    const userRole = (req as any).user.role;
+
+    // Endast admins kan avvisa rapporter
+    if (userRole !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Åtkomst nekad'
+      });
+    }
+
+    // Hämta rapporten
+    const report = await prisma.report.findUnique({
+      where: { id: reportId },
+      include: {
+        project: true,
+        author: true
+      }
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rapport hittades inte'
+      });
+    }
+
+    if (report.status !== 'SUBMITTED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Endast inlämnade rapporter kan avvisas'
+      });
+    }
+
+    // Uppdatera rapport status
+    const updatedReport = await prisma.report.update({
+      where: { id: reportId },
+      data: {
+        status: 'REJECTED'
+      }
+    });
+
+    // Återställ projektets status till IN_PROGRESS
+    await prisma.project.update({
+      where: { id: report.projectId },
+      data: {
+        status: 'IN_PROGRESS'
+      }
+    });
+
+    // Skapa notifikation
+    try {
+      await prisma.notification.create({
+        data: {
+          type: 'GENERAL',
+          subject: `Rapport avvisad: ${report.project.title}`,
+          message: `Rapporten för projektet "${report.project.title}" har avvisats${reason ? `. Anledning: ${reason}` : ''}`,
+          projectId: report.projectId,
+          userId: report.authorId
+        }
+      });
+    } catch (notificationError) {
+      console.error('Failed to create rejection notification:', notificationError);
+    }
+
+    res.json({
+      success: true,
+      message: 'Rapport avvisad',
+      report: updatedReport
+    });
+
+  } catch (error) {
+    console.error('Error rejecting report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Kunde inte avvisa rapport'
+    });
+  }
+});
+
+// GET /api/projects/recent-activities - Hämta senaste aktiviteter för dashboard
+router.get('/recent-activities', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const userRole = (req as any).user.role;
+    
+    // Hämta senaste notifikationer (aktiviteter)
+    const activities = await prisma.notification.findMany({
+      take: 10,
+      orderBy: {
+        createdAt: 'desc'
+      },
+      include: {
+        user: {
+          select: {
+            name: true,
+            email: true
+          }
+        },
+        project: {
+          select: {
+            title: true,
+            projectNumber: true
+          }
+        }
+      },
+      where: userRole === 'ADMIN' ? {} : {
+        OR: [
+          { userId: userId },
+          {
+            project: {
+              assignedToId: userId
+            }
+          },
+          {
+            project: {
+              teamMembers: { some: { userId: userId } }
+            }
+          }
+        ]
+      }
+    });
+
+    // Formatera aktiviteter för frontend
+    const formattedActivities = activities.map((activity: any) => ({
+      id: activity.id,
+      type: activity.type,
+      title: activity.subject,
+      message: activity.message,
+      timestamp: activity.createdAt,
+      user: activity.user?.name || 'System',
+      project: activity.project?.title || null,
+      projectNumber: activity.project?.projectNumber || null,
+      isRead: !!activity.readAt
+    }));
+
+    res.json(formattedActivities);
+  } catch (error) {
+    console.error('Error fetching recent activities:', error);
+    res.status(500).json({
+      message: 'Kunde inte hämta senaste aktiviteter',
+      error: error instanceof Error ? error.message : 'Okänt fel'
+    });
+  }
+});
+
 // GET /api/projects/:id - Hämta projektdetaljer
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -302,6 +891,23 @@ router.get('/:id', async (req, res) => {
             uploadedAt: true
           }
         },
+        teamMembers: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true,
+                company: true,
+                role: true
+              }
+            }
+          },
+          orderBy: {
+            assignedAt: 'asc'
+          }
+        },
         _count: {
           select: {
             reports: true,
@@ -337,7 +943,10 @@ router.get('/:id', async (req, res) => {
       }))
     };
 
-    res.json(projectWithImageData);
+    // 🔒 Filtrera bort kostnadsdata för contractors
+    const userRole = (req as any).user.role;
+    const filteredProject = filterCostDataForContractor(projectWithImageData, userRole);
+    res.json(filteredProject);
   } catch (error) {
     console.error('Error fetching project details:', error);
     res.status(500).json({ 
@@ -347,109 +956,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// GET /api/projects/image/:filename - Servera projektbilder
-router.get('/image/:filename', async (req, res) => {
-  try {
-    const { filename } = req.params;
-    const imagePath = path.join(__dirname, '../../uploads/projects', filename);
-    
-    // Kontrollera att filen existerar
-    try {
-      await fs.access(imagePath);
-    } catch {
-      return res.status(404).json({ message: 'Bild hittades inte' });
-    }
-
-    // Sätt rätt content-type baserat på filextension
-    const ext = path.extname(filename).toLowerCase();
-    const contentType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 
-                       ext === '.png' ? 'image/png' : 
-                       ext === '.gif' ? 'image/gif' : 
-                       'application/octet-stream';
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache i 1 år
-    
-    // Läs och skicka filen
-    const imageBuffer = await fs.readFile(imagePath);
-    res.send(imageBuffer);
-    
-  } catch (error) {
-    console.error('Error serving image:', error);
-    res.status(500).json({ 
-      message: 'Kunde inte ladda bild',
-      error: error instanceof Error ? error.message : 'Okänt fel'
-    });
-  }
-});
-
-// GET /api/projects/stats - Hämta enkel projektstatistik
-router.get('/stats', async (req, res) => {
-  try {
-    const [total, pending, assigned, inProgress, completed] = await Promise.all([
-      prisma.project.count(),
-      prisma.project.count({ where: { status: 'PENDING' } }),
-      prisma.project.count({ where: { status: 'ASSIGNED' } }),
-      prisma.project.count({ where: { status: 'IN_PROGRESS' } }),
-      prisma.project.count({ where: { status: 'COMPLETED' } }),
-    ]);
-
-    const urgentProjects = await prisma.project.count({
-      where: { 
-        priority: 'URGENT',
-        status: { in: ['PENDING', 'ASSIGNED', 'IN_PROGRESS'] }
-      }
-    });
-
-    res.json({
-      total,
-      pending,
-      assigned,
-      inProgress,
-      completed,
-      urgent: urgentProjects
-    });
-  } catch (error) {
-    console.error('Error fetching project stats:', error);
-    res.status(500).json({ 
-      message: 'Kunde inte hämta projektstatistik',
-      error: error instanceof Error ? error.message : 'Okänt fel'
-    });
-  }
-});
-
-// GET /api/projects/recent - Hämta senaste projekten för dashboard
-router.get('/recent', async (req, res) => {
-  try {
-    const recentProjects = await prisma.project.findMany({
-      take: 10,
-      include: {
-        assignedTo: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            company: true,
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    res.json(recentProjects);
-  } catch (error) {
-    console.error('Error fetching recent projects:', error);
-    res.status(500).json({ 
-      message: 'Kunde inte hämta senaste projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
-    });
-  }
-});
-
 // POST /api/projects - Skapa nytt projekt (med bilduppladdning)
-router.post('/', upload.array('images', 5), async (req, res) => {
+router.post('/', authenticateToken, requireAdmin, upload.array('images', 5), async (req, res) => {
   try {
     const validatedData = createProjectSchema.parse(req.body);
     
@@ -482,30 +990,58 @@ router.post('/', upload.array('images', 5), async (req, res) => {
       }
     });
 
-    // Spara uppladdade bilder
+    // Optimera och spara uppladdade bilder
     const files = req.files as Express.Multer.File[];
     if (files && files.length > 0) {
-      const imagePromises = files.map(file => 
-        prisma.projectImage.create({
+      const renamedFiles = await processUploadedImages(files);
+      const imagePromises = files.map(file => {
+        const finalFilename = renamedFiles.get(file.filename) || file.filename;
+        return prisma.projectImage.create({
           data: {
             projectId: project.id,
-            filename: file.filename,
+            filename: finalFilename,
             originalName: file.originalname,
-            mimeType: file.mimetype,
+            mimeType: finalFilename.endsWith('.jpeg') ? 'image/jpeg' : file.mimetype,
             size: file.size,
-            url: `/uploads/projects/${file.filename}`,
+            url: `/uploads/projects/${finalFilename}`,
           }
-        })
-      );
-      
+        });
+      });
+
       await Promise.all(imagePromises);
-      console.log(`${files.length} bilder sparade för projekt ${project.id}`);
+      console.log(`${files.length} bilder optimerade och sparade för projekt ${project.id}`);
     }
 
-    // Om projektet tilldelades direkt, skicka notifiering
+    // Skapa notifikation för projekt-skapande
+    try {
+      await prisma.notification.create({
+        data: {
+          type: 'GENERAL',
+          subject: `Nytt projekt skapat: ${project.title}`,
+          message: `Projekt "${project.title}" har skapats av admin`,
+          projectId: project.id,
+          userId: validatedData.assignedToId || null
+        }
+      });
+    } catch (notificationError) {
+      console.error('Failed to create project notification:', notificationError);
+    }
+
+    // Om projektet tilldelades direkt, skicka notifiering och skapa tilldelnings-notifikation
     if (validatedData.assignedToId) {
       try {
         await sendAssignmentNotification(project);
+        
+        // Skapa specifik tilldelnings-notifikation
+        await prisma.notification.create({
+          data: {
+            type: 'PROJECT_ASSIGNED',
+            subject: `Projekt tilldelat: ${project.title}`,
+            message: `Du har tilldelats projektet "${project.title}"`,
+            projectId: project.id,
+            userId: validatedData.assignedToId
+          }
+        });
       } catch (emailError) {
         console.error('Failed to send assignment notification:', emailError);
         // Fortsätt ändå - projektet är skapat
@@ -530,8 +1066,8 @@ router.post('/', upload.array('images', 5), async (req, res) => {
   }
 });
 
-// PUT /api/projects/:id - Uppdatera projekt
-router.put('/:id', async (req, res) => {
+// PUT /api/projects/:id - Uppdatera projekt (kräver admin-behörighet)
+router.put('/:id', authenticateToken, requireAdmin, upload.array('images', 5), async (req, res) => {
   try {
     const { id } = req.params;
     const validatedData = updateProjectSchema.parse(req.body);
@@ -565,10 +1101,58 @@ router.put('/:id', async (req, res) => {
       }
     });
 
+    // Optimera och spara nya uppladdade bilder
+    const files = req.files as Express.Multer.File[];
+    if (files && files.length > 0) {
+      const renamedFiles = await processUploadedImages(files);
+      const imagePromises = files.map(file => {
+        const finalFilename = renamedFiles.get(file.filename) || file.filename;
+        return prisma.projectImage.create({
+          data: {
+            projectId: updatedProject.id,
+            filename: finalFilename,
+            originalName: file.originalname,
+            mimeType: finalFilename.endsWith('.jpeg') ? 'image/jpeg' : file.mimetype,
+            size: file.size,
+            url: `/uploads/projects/${finalFilename}`,
+          }
+        });
+      });
+
+      await Promise.all(imagePromises);
+      console.log(`${files.length} nya bilder optimerade och sparade för projekt ${updatedProject.id}`);
+    }
+
+    // Skapa notifikation för projekt-uppdatering
+    try {
+      await prisma.notification.create({
+        data: {
+          type: 'GENERAL',
+          subject: `Projekt uppdaterat: ${updatedProject.title}`,
+          message: `Projekt "${updatedProject.title}" har uppdaterats`,
+          projectId: updatedProject.id,
+          userId: updatedProject.assignedToId
+        }
+      });
+    } catch (notificationError) {
+      console.error('Failed to create update notification:', notificationError);
+    }
+
     // Om kontraktör ändrades, skicka notifiering
     if (validatedData.assignedToId && validatedData.assignedToId !== existingProject.assignedToId) {
       try {
         await sendAssignmentNotification(updatedProject);
+        
+        // Skapa tilldelnings-notifikation
+        await prisma.notification.create({
+          data: {
+            type: 'PROJECT_ASSIGNED',
+            subject: `Projekt tilldelat: ${updatedProject.title}`,
+            message: `Du har tilldelats projektet "${updatedProject.title}"`,
+            projectId: updatedProject.id,
+            userId: validatedData.assignedToId
+          }
+        });
       } catch (emailError) {
         console.error('Failed to send assignment notification:', emailError);
       }
@@ -592,15 +1176,64 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id - Ta bort projekt
-router.delete('/:id', async (req, res) => {
+// DELETE /api/projects/:id/images/:imageId - Ta bort en enskild projektbild (endast admin)
+router.delete('/:id/images/:imageId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id, imageId } = req.params;
+
+    const image = await prisma.projectImage.findFirst({
+      where: { id: imageId, projectId: id }
+    });
+
+    if (!image) {
+      return res.status(404).json({ message: 'Bilden hittades inte' });
+    }
+
+    // Ta bort filen från disk
+    const filePath = path.join(__dirname, '../../uploads/projects', image.filename);
+    try {
+      await fs.unlink(filePath);
+    } catch (fileError) {
+      console.error(`Kunde inte ta bort fil ${filePath}:`, fileError);
+      // Fortsätt ändå - ta bort från databasen även om filen saknas
+    }
+
+    // Ta bort från databasen
+    await prisma.projectImage.delete({
+      where: { id: imageId }
+    });
+
+    res.json({ message: 'Bild raderad' });
+  } catch (error) {
+    console.error('Error deleting project image:', error);
+    res.status(500).json({
+      message: 'Kunde inte radera bild',
+      error: error instanceof Error ? error.message : 'Okänt fel'
+    });
+  }
+});
+
+// DELETE /api/projects/:id - Ta bort projekt (endast admin)
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const userRole = (req as any).user.role;
+
+    // Endast admin kan ta bort projekt
+    if (userRole !== 'ADMIN') {
+      return res.status(403).json({ 
+        message: 'Endast administratörer kan ta bort projekt' 
+      });
+    }
 
     const existingProject = await prisma.project.findUnique({
       where: { id },
       include: {
-        reports: true,
+        reports: {
+          include: {
+            images: true
+          }
+        },
         images: true
       }
     });
@@ -609,24 +1242,52 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Projekt hittades inte' });
     }
 
-    // Kontrollera om projektet kan tas bort
-    if (existingProject.status === 'IN_PROGRESS') {
-      return res.status(400).json({ 
-        message: 'Kan inte ta bort pågående projekt. Ändra status först.' 
-      });
+    // Admin kan ta bort ALLT - ta först bort relaterade data
+    console.log(`Admin ${(req as any).user.userId} tar bort projekt ${id} med status ${existingProject.status}`);
+
+    // Ta bort rapportbilder först
+    for (const report of existingProject.reports) {
+      if (report.images.length > 0) {
+        await prisma.reportImage.deleteMany({
+          where: { reportId: report.id }
+        });
+      }
     }
 
+    // Ta bort rapporter
     if (existingProject.reports.length > 0) {
-      return res.status(400).json({ 
-        message: 'Kan inte ta bort projekt med rapporter. Arkivera istället.' 
+      await prisma.report.deleteMany({
+        where: { projectId: id }
       });
     }
 
+    // Ta bort projektbilder
+    if (existingProject.images.length > 0) {
+      await prisma.projectImage.deleteMany({
+        where: { projectId: id }
+      });
+    }
+
+    // Ta bort notifikationer
+    await prisma.notification.deleteMany({
+      where: { projectId: id }
+    });
+
+    // Ta bort projektet
     await prisma.project.delete({
       where: { id }
     });
 
-    res.json({ message: 'Projekt borttaget' });
+    res.json({ 
+      message: 'Projekt och all relaterad data har tagits bort',
+      deletedProject: {
+        id: existingProject.id,
+        title: existingProject.title,
+        status: existingProject.status,
+        reportsDeleted: existingProject.reports.length,
+        imagesDeleted: existingProject.images.length
+      }
+    });
   } catch (error) {
     console.error('Error deleting project:', error);
     res.status(500).json({ 
@@ -636,8 +1297,8 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/projects/:id/assign - Tilldela projekt till entreprenör
-router.put('/:id/assign', async (req, res) => {
+// PUT /api/projects/:id/assign - Tilldela projekt till entreprenör (kräver admin-behörighet)
+router.put('/:id/assign', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { contractorId } = req.body;
@@ -726,8 +1387,17 @@ async function sendAssignmentNotification(project: any) {
       
       <p>Logga in i systemet för att se mer detaljer och påbörja arbetet.</p>
       
+      <div style="margin: 20px 0;">
+        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/contractor/projects/${project.id}" 
+           style="background-color: #1e40af; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+          📋 Visa projekt i systemet
+        </a>
+      </div>
+      
+      <p><strong>Direktlänk:</strong> <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/contractor/projects/${project.id}">${process.env.FRONTEND_URL || 'http://localhost:3000'}/contractor/projects/${project.id}</a></p>
+
       <p>Med vänliga hälsningar,<br>
-      Vilches Entreprenad AB</p>
+      ${process.env.COMPANY_NAME || 'VilchesApp'}</p>
     `
   };
 
@@ -742,7 +1412,7 @@ router.put('/:id/accept', authenticateToken, async (req, res) => {
     const userRole = (req as any).user.role;
 
     // Endast contractors kan acceptera projekt
-    if (userRole !== 'CONTRACTOR') {
+    if (userRole !== 'CONTRACTOR' && userRole !== 'EMPLOYEE') {
       return res.status(403).json({ 
         message: 'Endast contractors kan acceptera projekt'
       });
@@ -784,6 +1454,21 @@ router.put('/:id/accept', authenticateToken, async (req, res) => {
 
     console.log(`Project ${id} accepted by ${(req as any).user.email}`);
     
+    // Skapa notifikation för projekt-acceptans
+    try {
+      await prisma.notification.create({
+        data: {
+          type: 'GENERAL',
+          subject: `Projekt accepterat: ${updatedProject.title}`,
+          message: `${updatedProject.assignedTo?.name || 'Entreprenör'} accepterade projektet "${updatedProject.title}"`,
+          projectId: updatedProject.id,
+          userId: userId
+        }
+      });
+    } catch (notificationError) {
+      console.error('Failed to create acceptance notification:', notificationError);
+    }
+    
     res.json({
       message: 'Projekt accepterat',
       project: updatedProject
@@ -807,7 +1492,7 @@ router.put('/:id/reject', authenticateToken, async (req, res) => {
     const { reason } = req.body;
 
     // Endast contractors kan avböja projekt
-    if (userRole !== 'CONTRACTOR') {
+    if (userRole !== 'CONTRACTOR' && userRole !== 'EMPLOYEE') {
       return res.status(403).json({ 
         message: 'Endast contractors kan avböja projekt'
       });
@@ -838,9 +1523,39 @@ router.put('/:id/reject', authenticateToken, async (req, res) => {
       }
     });
 
-    // TODO: Skicka notifikation till admin om avvisning
-    console.log(`Project ${id} rejected by ${(req as any).user.email}, reason: ${reason || 'Ingen anledning angiven'}`);
-    
+    // Skicka notifikation till alla admins om avvisning
+    const contractorName = (req as any).user.name || (req as any).user.email;
+    try {
+      // Skapa DB-notifikation
+      await prisma.notification.create({
+        data: {
+          type: 'GENERAL',
+          subject: `Projekt avvisat: ${project.title}`,
+          message: `${contractorName} har avvisat projektet "${project.title}". Anledning: ${reason || 'Ingen anledning angiven'}. Projektet behöver tilldelas en ny entreprenör.`,
+          projectId: id,
+          userId: project.createdById
+        }
+      });
+
+      // Hämta alla admins och skicka email
+      const admins = await prisma.user.findMany({
+        where: { role: 'ADMIN' },
+        select: { email: true, name: true }
+      });
+
+      for (const admin of admins) {
+        await EmailNotificationService.sendProjectRejectionNotification(
+          admin.email,
+          admin.name,
+          contractorName,
+          { title: project.title, id: project.id, projectNumber: project.projectNumber },
+          reason
+        );
+      }
+    } catch (notificationError) {
+      console.error('Kunde inte skicka avvisningsnotifikation:', notificationError);
+    }
+
     res.json({
       message: 'Projekt avvisat',
       project: updatedProject
@@ -855,286 +1570,576 @@ router.put('/:id/reject', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/projects/analytics - Hämta analytics-data för dashboard
-router.get('/analytics', authenticateToken, async (req, res) => {
-  try {
-    const userId = (req as any).user.userId;
-    const userRole = (req as any).user.role;
 
-    // Endast admins kan hämta analytics
-    if (userRole !== 'ADMIN') {
-      return res.status(403).json({
-        message: 'Endast admins kan hämta analytics-data'
+// Report submission endpoints
+const reportSchema = z.object({
+  title: z.string().default('Rapport'),
+  workDescription: z.string().default('-'),
+  materialsUsed: z.array(z.object({
+    name: z.string(),
+    quantity: z.number(),
+    unit: z.string(),
+    cost: z.number()
+  })).default([]),
+  progressPercent: z.number().min(0).max(100).default(0),
+  nextSteps: z.string().optional(),
+  issues: z.string().optional(),
+  isDraft: z.boolean().default(false)
+}).refine(
+  data => data.isDraft || data.workDescription.length >= 10,
+  { message: 'Arbetsbeskrivning måste vara minst 10 tecken', path: ['workDescription'] }
+);
+
+// POST /api/projects/:id/report - Skapa eller uppdatera rapport
+router.post('/:id/report', authenticateToken, upload.array('images', 10), async (req, res) => {
+  try {
+    const { id: projectId } = req.params;
+    const userId = (req as any).user.userId;
+    
+    // Parse JSON data från FormData
+    const reportData = JSON.parse(req.body.reportData || '{}');
+    const validatedData = reportSchema.parse(reportData);
+    
+    // Kontrollera att projektet finns och är tilldelat användaren eller att användaren är teammedlem
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        OR: [
+          { assignedToId: userId },
+          { createdById: userId }, // Admin kan också skapa rapporter
+          { teamMembers: { some: { userId: userId } } }
+        ]
+      }
+    });
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: 'Projekt hittades inte eller du har inte behörighet'
       });
     }
 
-    const { period = '30d' } = req.query;
+    // Bestäm status baserat på isDraft
+    const status = validatedData.isDraft ? 'DRAFT' : 'SUBMITTED';
     
-    // Beräkna datumintervall baserat på period
-    const now = new Date();
-    let startDate: Date;
-    
-    switch (period) {
-      case '7d':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case '30d':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      case '90d':
-        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    // Skapa rapport
+    const report = await prisma.report.create({
+      data: {
+        projectId,
+        authorId: userId,
+        title: validatedData.title,
+        workDescription: validatedData.workDescription,
+        hoursWorked: 0,
+        materialsUsed: validatedData.materialsUsed,
+        progressPercent: validatedData.progressPercent,
+        nextSteps: validatedData.nextSteps,
+        issues: validatedData.issues,
+        status,
+        isCompleted: !validatedData.isDraft
+      }
+    });
+
+    // Optimera och spara uppladdade bilder
+    const files = req.files as Express.Multer.File[];
+    if (files && files.length > 0) {
+      const renamedFiles = await processUploadedImages(files);
+      const imageData = files.map(file => {
+        const finalFilename = renamedFiles.get(file.filename) || file.filename;
+        return {
+          reportId: report.id,
+          filename: finalFilename,
+          originalName: file.originalname,
+          mimeType: finalFilename.endsWith('.jpeg') ? 'image/jpeg' : file.mimetype,
+          size: file.size,
+          url: `/uploads/reports/${finalFilename}`
+        };
+      });
+
+      await prisma.reportImage.createMany({
+        data: imageData
+      });
     }
 
-    // Hämta projekt för aktuell period
-    const currentProjects = await prisma.project.findMany({
-      where: {
-        createdAt: {
-          gte: startDate,
-          lte: now
+    // Om rapporten skickas (inte draft), markera projektet som klart
+    if (!validatedData.isDraft) {
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { 
+          status: 'COMPLETED' // Automatiskt markera som klart när rapport lämnas in
         }
-      },
-      select: {
-        id: true,
-        estimatedCost: true,
-        createdAt: true,
-        status: true
-      }
-    });
-
-    // Hämta projekt för föregående period (för trendberäkning)
-    const previousStartDate = new Date(startDate.getTime() - (now.getTime() - startDate.getTime()));
-    const previousProjects = await prisma.project.findMany({
-      where: {
-        createdAt: {
-          gte: previousStartDate,
-          lte: startDate
-        }
-      },
-      select: {
-        id: true,
-        estimatedCost: true,
-        createdAt: true,
-        status: true
-      }
-    });
-
-    // Beräkna intäkter och trends
-    const currentRevenue = currentProjects.reduce((sum, project) => 
-      sum + (project.estimatedCost || 0), 0
-    );
-    const previousRevenue = previousProjects.reduce((sum, project) => 
-      sum + (project.estimatedCost || 0), 0
-    );
-
-    const revenueChange = previousRevenue > 0 
-      ? ((currentRevenue - previousRevenue) / previousRevenue * 100)
-      : currentRevenue > 0 ? 100 : 0;
-
-    // Beräkna projekt-trends
-    const currentProjectCount = currentProjects.length;
-    const previousProjectCount = previousProjects.length;
-    const projectChange = previousProjectCount > 0 
-      ? ((currentProjectCount - previousProjectCount) / previousProjectCount * 100)
-      : currentProjectCount > 0 ? 100 : 0;
-
-    // Gruppera data per dag/vecka/månad beroende på period
-    const groupedData = [];
-    const days = Math.ceil((now.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
-    
-    if (period === '7d') {
-      // Gruppera per dag
-      for (let i = 0; i < 7; i++) {
-        const date = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
-        const dayStart = new Date(date.setHours(0, 0, 0, 0));
-        const dayEnd = new Date(date.setHours(23, 59, 59, 999));
-        
-        const dayProjects = currentProjects.filter(p => 
-          p.createdAt >= dayStart && p.createdAt <= dayEnd
-        );
-        
-        groupedData.push({
-          period: dayStart.toLocaleDateString('sv-SE', { weekday: 'short' }),
-          revenue: dayProjects.reduce((sum, p) => sum + (p.estimatedCost || 0), 0),
-          projects: dayProjects.length,
-          date: dayStart.toISOString()
+      });
+      
+      // Skapa notifikation för rapport-inlämning
+      try {
+        await prisma.notification.create({
+          data: {
+            type: 'REPORT_SUBMITTED',
+            subject: `Rapport inlämnad: ${project.title}`,
+            message: `Rapport har lämnats in för projektet "${project.title}" och projektet är nu markerat som färdigt`,
+            projectId: projectId,
+            userId: userId
+          }
         });
-      }
-    } else if (period === '30d') {
-      // Gruppera per vecka
-      const weeksCount = Math.ceil(days / 7);
-      for (let i = 0; i < weeksCount; i++) {
-        const weekStart = new Date(startDate.getTime() + i * 7 * 24 * 60 * 60 * 1000);
-        const weekEnd = new Date(Math.min(
-          weekStart.getTime() + 7 * 24 * 60 * 60 * 1000,
-          now.getTime()
-        ));
-        
-        const weekProjects = currentProjects.filter(p => 
-          p.createdAt >= weekStart && p.createdAt <= weekEnd
-        );
-        
-        groupedData.push({
-          period: `V${i + 1}`,
-          revenue: weekProjects.reduce((sum, p) => sum + (p.estimatedCost || 0), 0),
-          projects: weekProjects.length,
-          date: weekStart.toISOString()
-        });
-      }
-    } else {
-      // 90d - Gruppera per månad
-      const monthsCount = 3;
-      for (let i = 0; i < monthsCount; i++) {
-        const monthStart = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
-        const monthEnd = new Date(startDate.getFullYear(), startDate.getMonth() + i + 1, 0);
-        
-        const monthProjects = currentProjects.filter(p => 
-          p.createdAt >= monthStart && p.createdAt <= monthEnd
-        );
-        
-        groupedData.push({
-          period: monthStart.toLocaleDateString('sv-SE', { month: 'short' }),
-          revenue: monthProjects.reduce((sum, p) => sum + (p.estimatedCost || 0), 0),
-          projects: monthProjects.length,
-          date: monthStart.toISOString()
-        });
+      } catch (notificationError) {
+        console.error('Failed to create report notification:', notificationError);
       }
     }
-
-    // Hämta aktuella stats för trendberäkningar
-    const totalProjects = await prisma.project.count();
-    const unassignedProjects = await prisma.project.count({
-      where: { status: 'PENDING' }
-    });
-    const inProgressProjects = await prisma.project.count({
-      where: { status: 'IN_PROGRESS' }
-    });
-    
-    // Väntande rapporter = projekt som är tilldelade men inte rapporterade än
-    const pendingReports = await prisma.project.count({
-      where: { 
-        status: {
-          in: ['ASSIGNED', 'IN_PROGRESS']
-        }
-      }
-    });
-    
-    // Aktiva entreprenörer = användare med rollen CONTRACTOR som är aktiva
-    const activeContractors = await prisma.user.count({
-      where: { 
-        role: 'CONTRACTOR',
-        isActive: true
-      }
-    });
-
-    // Beräkna tidigare stats för trend (samma period bakåt)
-    const previousTotalProjects = await prisma.project.count({
-      where: {
-        createdAt: {
-          gte: previousStartDate,
-          lt: startDate
-        }
-      }
-    });
-
-    const previousUnassignedProjects = await prisma.project.count({
-      where: {
-        status: 'PENDING',
-        createdAt: {
-          gte: previousStartDate,
-          lt: startDate
-        }
-      }
-    });
-
-    const previousInProgressProjects = await prisma.project.count({
-      where: {
-        status: 'IN_PROGRESS',
-        createdAt: {
-          gte: previousStartDate,
-          lt: startDate
-        }
-      }
-    });
-
-    const previousPendingReports = await prisma.project.count({
-      where: {
-        status: {
-          in: ['ASSIGNED', 'IN_PROGRESS']
-        },
-        createdAt: {
-          gte: previousStartDate,
-          lt: startDate
-        }
-      }
-    });
-
-    // Beräkna trendförändringar
-    const unassignedChange = previousUnassignedProjects > 0 
-      ? ((unassignedProjects - previousUnassignedProjects) / previousUnassignedProjects * 100)
-      : unassignedProjects > 0 ? 100 : 0;
-
-    const inProgressChange = previousInProgressProjects > 0 
-      ? ((inProgressProjects - previousInProgressProjects) / previousInProgressProjects * 100)
-      : inProgressProjects > 0 ? 100 : 0;
-
-    const pendingReportsChange = previousPendingReports > 0 
-      ? ((pendingReports - previousPendingReports) / previousPendingReports * 100)
-      : pendingReports > 0 ? 100 : 0;
-
-    // För aktiva entreprenörer, jämför med totalt antal (enklare metrik)
-    const totalContractors = await prisma.user.count({
-      where: { role: 'CONTRACTOR' }
-    });
-    const contractorActivityRate = totalContractors > 0 
-      ? (activeContractors / totalContractors * 100) - 80 // Baseline 80%
-      : 0;
 
     res.json({
-      revenue: {
-        current: currentRevenue,
-        change: Math.round(revenueChange * 10) / 10,
-        changeType: revenueChange >= 0 ? 'increase' : 'decrease'
-      },
-      projects: {
-        current: currentProjectCount,
-        change: Math.round(projectChange * 10) / 10,
-        changeType: projectChange >= 0 ? 'increase' : 'decrease'
-      },
-      chartData: groupedData,
-      stats: {
-        unassigned: {
-          value: unassignedProjects,
-          change: Math.round(unassignedChange * 10) / 10,
-          changeType: unassignedChange > 0 ? 'increase' : unassignedChange < 0 ? 'decrease' : 'neutral'
-        },
-        inProgress: {
-          value: inProgressProjects,
-          change: Math.round(inProgressChange * 10) / 10,
-          changeType: inProgressChange > 0 ? 'increase' : inProgressChange < 0 ? 'decrease' : 'neutral'
-        },
-        pendingReports: {
-          value: pendingReports,
-          change: Math.round(pendingReportsChange * 10) / 10,
-          changeType: pendingReportsChange > 0 ? 'increase' : pendingReportsChange < 0 ? 'decrease' : 'neutral'
-        },
-        activeContractors: {
-          value: activeContractors,
-          change: Math.round(contractorActivityRate * 10) / 10,
-          changeType: contractorActivityRate > 0 ? 'increase' : contractorActivityRate < 0 ? 'decrease' : 'neutral'
+      success: true,
+      message: validatedData.isDraft ? 'Utkast sparat' : 'Rapport skickad',
+      report: {
+        id: report.id,
+        status: report.status,
+        createdAt: report.createdAt
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error creating report:', error);
+    if (error?.name === 'ZodError') {
+      return res.status(400).json({
+        success: false,
+        message: error.errors?.[0]?.message || 'Ogiltiga uppgifter'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Kunde inte spara rapport'
+    });
+  }
+});
+
+// GET /api/projects/:id/drafts - Hämta utkast för projekt
+router.get('/:id/drafts', authenticateToken, async (req, res) => {
+  try {
+    const { id: projectId } = req.params;
+    const userId = (req as any).user.userId;
+    const userRole = (req as any).user.role;
+
+    // Skapa where-villkor baserat på användarroll
+    const whereCondition: any = {
+      projectId,
+      status: 'DRAFT'
+    };
+
+    // Om inte admin, filtrera endast på egna utkast
+    if (userRole !== 'ADMIN') {
+      whereCondition.authorId = userId;
+    }
+
+    const drafts = await prisma.report.findMany({
+      where: whereCondition,
+      include: {
+        images: true,
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
         }
       },
-      period: period
+      orderBy: {
+        updatedAt: 'desc'
+      }
+    });
+
+    res.json({
+      success: true,
+      drafts
     });
 
   } catch (error) {
-    console.error('Error fetching analytics:', error);
+    console.error('Error fetching drafts:', error);
     res.status(500).json({
-      message: 'Kunde inte hämta analytics-data',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      success: false,
+      message: 'Kunde inte hämta utkast'
     });
+  }
+});
+
+// DELETE /api/projects/:id/reports/:reportId/draft - Ta bort utkast
+router.delete('/:id/reports/:reportId/draft', authenticateToken, async (req, res) => {
+  try {
+    const { reportId } = req.params;
+    const userId = (req as any).user.userId;
+    const userRole = (req as any).user.role;
+
+    // Hämta rapporten för att kontrollera status och ägare
+    const report = await prisma.report.findUnique({
+      where: { id: reportId }
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rapport hittades inte'
+      });
+    }
+
+    // Endast utkast kan tas bort
+    if (report.status !== 'DRAFT') {
+      return res.status(400).json({
+        success: false,
+        message: 'Endast utkast kan tas bort'
+      });
+    }
+
+    // Kontrollera behörighet
+    if (userRole !== 'ADMIN' && report.authorId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Du har inte behörighet att ta bort detta utkast'
+      });
+    }
+
+    // Ta bort utkast
+    await prisma.report.delete({
+      where: { id: reportId }
+    });
+
+    res.json({
+      success: true,
+      message: 'Utkast borttaget'
+    });
+
+  } catch (error) {
+    console.error('Error deleting draft:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Kunde inte ta bort utkast'
+    });
+  }
+});
+
+// PUT /api/projects/:id/reports/:reportId - Uppdatera befintlig rapport/utkast
+router.put('/:id/reports/:reportId', authenticateToken, upload.array('images', 10), async (req, res) => {
+  try {
+    const { id: projectId, reportId } = req.params;
+    const userId = (req as any).user.userId;
+    
+    const reportData = JSON.parse(req.body.reportData || '{}');
+    const validatedData = reportSchema.parse(reportData);
+
+    // Kontrollera att rapporten finns och tillhör användaren
+    const existingReport = await prisma.report.findFirst({
+      where: {
+        id: reportId,
+        projectId,
+        authorId: userId
+      }
+    });
+
+    if (!existingReport) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rapport hittades inte'
+      });
+    }
+
+    // Uppdatera rapport
+    const status = validatedData.isDraft ? 'DRAFT' : 'SUBMITTED';
+    
+    const updatedReport = await prisma.report.update({
+      where: { id: reportId },
+      data: {
+        title: validatedData.title,
+        workDescription: validatedData.workDescription,
+        hoursWorked: 0,
+        materialsUsed: validatedData.materialsUsed,
+        progressPercent: validatedData.progressPercent,
+        nextSteps: validatedData.nextSteps,
+        issues: validatedData.issues,
+        status,
+        isCompleted: !validatedData.isDraft
+      }
+    });
+
+    // Optimera och spara nya bilder
+    const files = req.files as Express.Multer.File[];
+    if (files && files.length > 0) {
+      const renamedFiles = await processUploadedImages(files);
+      const imageData = files.map(file => {
+        const finalFilename = renamedFiles.get(file.filename) || file.filename;
+        return {
+          reportId: reportId,
+          filename: finalFilename,
+          originalName: file.originalname,
+          mimeType: finalFilename.endsWith('.jpeg') ? 'image/jpeg' : file.mimetype,
+          size: file.size,
+          url: `/uploads/reports/${finalFilename}`
+        };
+      });
+
+      await prisma.reportImage.createMany({
+        data: imageData
+      });
+    }
+
+    res.json({
+      success: true,
+      message: validatedData.isDraft ? 'Utkast uppdaterat' : 'Rapport skickad',
+      report: updatedReport
+    });
+
+  } catch (error: any) {
+    console.error('Error updating report:', error);
+    if (error?.name === 'ZodError') {
+      return res.status(400).json({
+        success: false,
+        message: error.errors?.[0]?.message || 'Ogiltiga uppgifter'
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Kunde inte uppdatera rapport'
+    });
+  }
+});
+
+
+// ========================================
+// TEAM MANAGEMENT ENDPOINTS
+// ========================================
+
+/**
+ * POST /api/projects/:id/team
+ * Lägg till teammmedlem i projekt
+ */
+router.post('/:id/team', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId, role = 'MEMBER' } = req.body;
+    const assignedById = (req as any).user.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId krävs'
+      });
+    }
+
+    // Kolla att projektet finns
+    const project = await prisma.project.findUnique({
+      where: { id }
+    });
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: 'Projekt hittades inte'
+      });
+    }
+
+    // Kolla att användaren finns och är CONTRACTOR
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Användare hittades inte'
+      });
+    }
+
+    if (user.role !== 'CONTRACTOR' && user.role !== 'EMPLOYEE') {
+      return res.status(400).json({
+        success: false,
+        message: 'Endast contractors kan läggas till i projekt-team'
+      });
+    }
+
+    // Lägg till i team (om inte redan finns)
+    const teamMember = await prisma.projectTeamMember.upsert({
+      where: {
+        projectId_userId: {
+          projectId: id,
+          userId: userId
+        }
+      },
+      update: {
+        role: role
+      },
+      create: {
+        projectId: id,
+        userId: userId,
+        role: role,
+        assignedById: assignedById
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            company: true
+          }
+        }
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: `${user.name} tillagd i projekt-team`,
+      teamMember: teamMember
+    });
+
+  } catch (error: any) {
+    console.error('Error adding team member:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Kunde inte lägga till teammedlem',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/projects/:id/team/:userId
+ * Ta bort teammedlem från projekt
+ */
+router.delete('/:id/team/:userId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id, userId } = req.params;
+
+    const deleted = await prisma.projectTeamMember.delete({
+      where: {
+        projectId_userId: {
+          projectId: id,
+          userId: userId
+        }
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Teammedlem borttagen'
+    });
+
+  } catch (error: any) {
+    console.error('Error removing team member:', error);
+    
+    if (error.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        message: 'Teammedlem hittades inte'
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Kunde inte ta bort teammedlem',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/projects/:id/team
+ * Hämta alla teammedlemmar för ett projekt
+ */
+router.get('/:id/team', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const teamMembers = await prisma.projectTeamMember.findMany({
+      where: {
+        projectId: id
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            company: true,
+            role: true
+          }
+        },
+        assignedBy: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        assignedAt: 'asc'
+      }
+    });
+
+    return res.json({
+      success: true,
+      count: teamMembers.length,
+      teamMembers: teamMembers
+    });
+
+  } catch (error: any) {
+    console.error('Error fetching team members:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Kunde inte hämta teammedlemmar',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/projects/:id/images - Contractor laddar upp bilder till sitt projekt
+router.post('/:id/images', authenticateToken, upload.array('images', 5), async (req, res) => {
+  try {
+    const project = await prisma.project.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, assignedToId: true, teamMembers: { select: { userId: true } } }
+    });
+
+    if (!project) {
+      return res.status(404).json({ message: 'Projekt hittades inte' });
+    }
+
+    // Kolla att användaren är tilldelad projektet eller är teammedlem
+    const userId = req.user!.userId;
+    const isAssigned = project.assignedToId === userId;
+    const isTeamMember = project.teamMembers.some(tm => tm.userId === userId);
+    const isAdmin = req.user!.role === 'ADMIN';
+
+    if (!isAssigned && !isTeamMember && !isAdmin) {
+      return res.status(403).json({ message: 'Du har inte tillgång till detta projekt' });
+    }
+
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({ message: 'Inga bilder uppladdade' });
+    }
+
+    const renamedFiles = await processUploadedImages(files);
+
+    const imagePromises = files.map(file => {
+      const finalFilename = renamedFiles.get(file.filename) || file.filename;
+      return prisma.projectImage.create({
+        data: {
+          projectId: project.id,
+          filename: finalFilename,
+          originalName: file.originalname,
+          mimeType: finalFilename.endsWith('.jpeg') ? 'image/jpeg' : file.mimetype,
+          size: file.size,
+          url: `/uploads/projects/${finalFilename}`,
+        }
+      });
+    });
+
+    const images = await Promise.all(imagePromises);
+
+    res.status(201).json({
+      message: `${images.length} bild(er) uppladdade`,
+      images
+    });
+  } catch (error) {
+    console.error('Error uploading contractor images:', error);
+    res.status(500).json({ message: 'Kunde inte ladda upp bilder' });
   }
 });
 

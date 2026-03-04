@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { prisma } from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Validation schemas
 const createContractorSchema = z.object({
@@ -26,7 +26,7 @@ const updateContractorSchema = z.object({
 });
 
 // GET /api/contractors - Hämta alla entreprenörer
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const contractors = await prisma.user.findMany({
       where: {
@@ -57,7 +57,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/contractors - Skapa ny entreprenör
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const validatedData = createContractorSchema.parse(req.body);
     
@@ -72,9 +72,9 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Generera ett temporärt lösenord
-    const tempPassword = Math.random().toString(36).slice(-8) + '!';
-    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+    // Generera ett kryptografiskt säkert temporärt lösenord
+    const tempPassword = crypto.randomBytes(12).toString('base64').slice(0, 12) + '!A1';
+    const hashedPassword = await bcrypt.hash(tempPassword, 12);
 
     const contractor = await prisma.user.create({
       data: {
@@ -93,8 +93,8 @@ router.post('/', async (req, res) => {
       }
     });
 
-    // I framtiden kan vi skicka e-post med inloggningsuppgifter här
-    console.log(`Ny entreprenör skapad: ${contractor.email}, temp lösenord: ${tempPassword}`);
+    // Logga skapande utan känslig information
+    console.log(`Ny entreprenör skapad: ${contractor.email}`);
 
     res.status(201).json({
       ...contractor,
@@ -118,7 +118,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/contractors/:id - Uppdatera entreprenör
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const validatedData = updateContractorSchema.parse(req.body);
@@ -181,7 +181,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/contractors/:id - Ta bort entreprenör
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -228,7 +228,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // GET /api/contractors/stats - Hämta statistik
-router.get('/stats', async (req, res) => {
+router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const [total, active, inactive] = await Promise.all([
       prisma.user.count({
@@ -283,13 +283,12 @@ router.post('/:id/send-welcome', async (req, res) => {
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 timmar
 
-    // Spara reset-token i databasen (vi behöver lägga till fält i schema)
+    // Spara reset-token i databasen
     await prisma.user.update({
       where: { id },
       data: {
-        // Vi kommer lägga till dessa fält senare
-        // resetToken,
-        // resetTokenExpiry
+        resetToken,
+        resetTokenExpiry
       }
     });
 
@@ -328,6 +327,16 @@ router.post('/:id/reset-password', async (req, res) => {
 
     // Generera reset-token
     const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 timme
+    
+    // Spara token i databasen
+    await prisma.user.update({
+      where: { id: contractor.id },
+      data: {
+        resetToken,
+        resetTokenExpiry
+      }
+    });
     
     // Skicka lösenordsbyte-mail
     await sendPasswordResetEmail(contractor, resetToken);
@@ -358,17 +367,17 @@ async function sendWelcomeEmail(contractor: any, resetToken: string) {
     },
   });
 
-  const loginUrl = `${process.env.FRONTEND_URL}/contractor`;
-  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+  const loginUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/contractor`;
+  const resetUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/reset-password?token=${resetToken}`;
 
   const mailOptions = {
     from: `${process.env.SMTP_FROM_NAME} <${process.env.SMTP_FROM_EMAIL}>`,
     to: contractor.email,
-    subject: 'Välkommen till Vilches Entreprenad AB - Skapa ditt lösenord',
+    subject: 'Välkommen till ${process.env.COMPANY_NAME || 'VilchesApp'} - Skapa ditt lösenord',
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 30px; text-align: center;">
-          <h1 style="color: white; margin: 0; font-size: 28px;">Välkommen till Vilches Entreprenad AB</h1>
+          <h1 style="color: white; margin: 0; font-size: 28px;">Välkommen till ${process.env.COMPANY_NAME || 'VilchesApp'}</h1>
         </div>
         
         <div style="padding: 30px; background: #f9fafb;">
@@ -404,15 +413,15 @@ async function sendWelcomeEmail(contractor: any, resetToken: string) {
           </div>
           
           <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
-            Länken för lösenordsskapande är giltig i 24 timmar. Om du har frågor, kontakta oss på info@vilchesab.se
+            Länken för lösenordsskapande är giltig i 24 timmar. Om du har frågor, kontakta oss på ${process.env.COMPANY_EMAIL || ''}
           </p>
           
           <hr style="border: none; height: 1px; background: #e5e7eb; margin: 30px 0;">
           
           <p style="color: #6b7280; font-size: 14px; text-align: center;">
             Med vänliga hälsningar,<br>
-            <strong>Vilches Entreprenad AB</strong><br>
-            info@vilchesab.se
+            <strong>${process.env.COMPANY_NAME || 'VilchesApp'}</strong><br>
+            ${process.env.COMPANY_EMAIL || ''}
           </p>
         </div>
       </div>
@@ -433,12 +442,12 @@ async function sendPasswordResetEmail(contractor: any, resetToken: string) {
     },
   });
 
-  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+  const resetUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/reset-password?token=${resetToken}`;
 
   const mailOptions = {
     from: `${process.env.SMTP_FROM_NAME} <${process.env.SMTP_FROM_EMAIL}>`,
     to: contractor.email,
-    subject: 'Återställ ditt lösenord - Vilches Entreprenad AB',
+    subject: 'Återställ ditt lösenord - ${process.env.COMPANY_NAME || 'VilchesApp'}',
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 30px; text-align: center;">
@@ -449,7 +458,7 @@ async function sendPasswordResetEmail(contractor: any, resetToken: string) {
           <h2 style="color: #1f2937; margin-bottom: 20px;">Hej ${contractor.name}!</h2>
           
           <p style="color: #4b5563; line-height: 1.6; margin-bottom: 25px;">
-            Du har begärt att återställa ditt lösenord för Vilches Entreprenad AB:s projektsystem.
+            Du har begärt att återställa ditt lösenord för ${process.env.COMPANY_NAME || 'VilchesApp'}:s projektsystem.
           </p>
           
           <div style="text-align: center; margin: 30px 0;">
@@ -468,7 +477,7 @@ async function sendPasswordResetEmail(contractor: any, resetToken: string) {
           
           <p style="color: #6b7280; font-size: 14px; text-align: center;">
             Med vänliga hälsningar,<br>
-            <strong>Vilches Entreprenad AB</strong>
+            <strong>${process.env.COMPANY_NAME || 'VilchesApp'}</strong>
           </p>
         </div>
       </div>

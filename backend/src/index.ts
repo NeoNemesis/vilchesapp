@@ -1,9 +1,14 @@
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
+import cookieParser from 'cookie-parser';
+import {
+  generalLimiter,
+  securityHeaders,
+  sanitizeRequest
+} from './middleware/security';
+import { prisma } from './lib/prisma';
 
 // Ladda environment variabler
 dotenv.config();
@@ -11,33 +16,30 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Säkerhet middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https:"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "http://localhost:3000", "http://localhost:3001"],
-      connectSrc: ["'self'", "http://localhost:3000", "http://localhost:3001"],
-      fontSrc: ["'self'", "https:", "data:"],
-    },
-  },
-}));
+// Trust proxy för korrekt IP-hantering
+app.set('trust proxy', 1);
+
+// Säkerhetsmiddleware
+app.use(securityHeaders);
+app.use(sanitizeRequest);
+app.use(cookieParser());
+
+// CORS — configurable via CORS_ORIGINS env var
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['http://192.168.50.202:3000'] // Din frontend URL
-    : true, // Tillåt alla origins för utveckling
-  credentials: true
+  origin: process.env.NODE_ENV === 'production'
+    ? (process.env.CORS_ORIGINS || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean)
+    : true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-api-key'],
+  exposedHeaders: ['X-Total-Count']
 }));
 
-// Rate limiting - begränsa antal requests per IP
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minuter
-  max: 100, // Max 100 requests per IP per 15 min
-  message: 'För många förfrågningar från denna IP, försök igen senare.'
-});
-app.use(limiter);
+// Rate limiting
+app.use(generalLimiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -47,30 +49,76 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Grundläggande health check route
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    message: 'Vilches Entreprenad AB API är igång!',
-    timestamp: new Date().toISOString()
+app.get('/health', async (req, res) => {
+  const checks: Record<string, string> = {};
+  let healthy = true;
+
+  // DB-check
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = 'OK';
+  } catch {
+    checks.database = 'FAIL';
+    healthy = false;
+  }
+
+  // Minne
+  const mem = process.memoryUsage();
+  checks.memoryMB = Math.round(mem.rss / 1024 / 1024).toString();
+
+  // Uptime
+  checks.uptimeHours = (process.uptime() / 3600).toFixed(1);
+
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'OK' : 'DEGRADED',
+    timestamp: new Date().toISOString(),
+    checks,
   });
 });
 
 // Importera routes
-import emailRoutes from './routes/emailRoutes';
+import setupRoutes from './setup/setupRoutes';
+import appSettingsRoutes from './routes/appSettingsRoutes';
 import authRoutes from './routes/authRoutes';
 import contractorRoutes from './routes/contractorRoutes';
 import projectRoutes from './routes/projectRoutes';
+import geocodingRoutes from './routes/geocodingRoutes';
+import webhookRoutes from './routes/webhookRoutes';
+import analyticsRoutes from './routes/analyticsRoutes';
+import quotesRoutes from './routes/quotesRoutes';
+import automationsRoutes from './routes/automationsRoutes';
+import archiveRoutes from './routes/archive';
+import activityLogRoutes from './routes/activityLogRoutes';
+import employeeRoutes from './routes/employeeRoutes';
+import timeReportRoutes from './routes/timeReportRoutes';
+import accountantSettingsRoutes from './routes/accountantSettingsRoutes';
+
+// Setup routes (no auth required — used during first-time setup)
+app.use('/api/setup', setupRoutes);
+
+// App settings (public endpoint for branding/feature flags)
+app.use('/api/app-settings', appSettingsRoutes);
 
 // API routes
 app.use('/api/auth', authRoutes);
-app.use('/api/email', emailRoutes);
 app.use('/api/contractors', contractorRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/quotes', quotesRoutes);
+app.use('/api/geocoding', geocodingRoutes);
+app.use('/api/webhook', webhookRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/automations', automationsRoutes);
+app.use('/api', archiveRoutes);
+app.use('/api/activity-logs', activityLogRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/time-reports', timeReportRoutes);
+app.use('/api/settings/accountant', accountantSettingsRoutes);
 
 app.get('/api', (req, res) => {
   res.json({
-    message: 'Välkommen till Vilches Entreprenad AB API',
+    message: 'VilchesApp API — Project Management System',
     version: '1.0.0',
+    poweredBy: 'VilchesApp (https://github.com/NeoNemesis/vilchesapp)',
     endpoints: {
       health: '/health',
       api: '/api',
@@ -78,13 +126,6 @@ app.get('/api', (req, res) => {
         login: '/api/auth/login',
         logout: '/api/auth/logout',
         me: '/api/auth/me'
-      },
-      email: {
-        approvedSenders: '/api/email/approved-senders',
-        startMonitoring: '/api/email/start-monitoring',
-        stopMonitoring: '/api/email/stop-monitoring',
-        status: '/api/email/monitoring-status',
-        testConnection: '/api/email/test-connection'
       },
       contractors: {
         list: '/api/contractors',
@@ -100,6 +141,26 @@ app.get('/api', (req, res) => {
         delete: '/api/projects/:id',
         assign: '/api/projects/:id/assign',
         stats: '/api/projects/stats'
+      },
+      quotes: {
+        estimate: '/api/quotes/estimate',
+        list: '/api/quotes',
+        create: '/api/quotes',
+        update: '/api/quotes/:id',
+        delete: '/api/quotes/:id',
+        send: '/api/quotes/:id/send',
+        pdf: '/api/quotes/:id/pdf',
+        createProject: '/api/quotes/:id/create-project',
+        similar: '/api/quotes/similar',
+        materials: '/api/quotes/materials',
+        templates: '/api/quotes/templates'
+      },
+      analytics: {
+        summary: '/api/analytics/summary?days=7',
+        full: '/api/analytics/full?days=30',
+        trafficSources: '/api/analytics/traffic-sources?days=30',
+        geographic: '/api/analytics/geographic?days=30',
+        trends: '/api/analytics/trends?days=30'
       }
     }
   });
@@ -128,10 +189,11 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
 
 // Starta servern
 app.listen(PORT, () => {
-  console.log(`🚀 Vilches Entreprenad AB API körs på port ${PORT}`);
+  console.log(`🚀 VilchesApp API running on port ${PORT}`);
   console.log(`📍 Server URL: http://localhost:${PORT}`);
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);
   console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`⚡ Powered by VilchesApp — https://github.com/NeoNemesis/vilchesapp`);
 });
 
 export default app;

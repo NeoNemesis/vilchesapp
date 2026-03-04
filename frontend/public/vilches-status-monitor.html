@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vilches System Status</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .status-ok { color: #28a745; }
+        .status-warning { color: #ffc107; }
+        .status-error { color: #dc3545; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .log { background: #f8f9fa; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; }
+        .refresh-btn { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        .refresh-btn:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Vilches Auto-Healer Status</h1>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>🔧 Tjänster</h3>
+                <div id="services-status">Laddar...</div>
+            </div>
+            
+            <div class="card">
+                <h3>📦 Dependencies</h3>
+                <div id="dependencies-status">Laddar...</div>
+            </div>
+            
+            <div class="card">
+                <h3>🔒 Säkerhet</h3>
+                <div id="security-status">Laddar...</div>
+            </div>
+            
+            <div class="card">
+                <h3>💾 System</h3>
+                <div id="system-status">Laddar...</div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>📋 Senaste Loggar</h3>
+            <button class="refresh-btn" onclick="refreshStatus()">🔄 Uppdatera</button>
+            <div id="logs" class="log">Laddar loggar...</div>
+        </div>
+    </div>
+
+    <script>
+        async function refreshStatus() {
+            try {
+                // Hämta status från API (du behöver skapa detta endpoint)
+                const response = await fetch('/api/system-status');
+                const data = await response.json();
+                
+                updateServicesStatus(data.services);
+                updateDependenciesStatus(data.dependencies);
+                updateSecurityStatus(data.security);
+                updateSystemStatus(data.system);
+                updateLogs(data.logs);
+            } catch (error) {
+                console.error('Fel vid hämtning av status:', error);
+                document.getElementById('logs').innerHTML = 'Fel vid hämtning av status: ' + error.message;
+            }
+        }
+        
+        function updateServicesStatus(services) {
+            const html = Object.entries(services).map(([name, status]) => 
+                `<div class="${status === 'active' ? 'status-ok' : 'status-error'}">
+                    ${name}: ${status === 'active' ? '✅ Aktiv' : '❌ Inaktiv'}
+                </div>`
+            ).join('');
+            document.getElementById('services-status').innerHTML = html;
+        }
+        
+        function updateDependenciesStatus(deps) {
+            const html = `
+                <div class="status-${deps.outdated > 0 ? 'warning' : 'ok'}">
+                    Utdaterade paket: ${deps.outdated}
+                </div>
+                <div class="status-${deps.vulnerabilities > 0 ? 'error' : 'ok'}">
+                    Säkerhetshål: ${deps.vulnerabilities}
+                </div>
+            `;
+            document.getElementById('dependencies-status').innerHTML = html;
+        }
+        
+        function updateSecurityStatus(security) {
+            const html = `
+                <div class="status-${security.auditLevel === 'low' ? 'ok' : 'warning'}">
+                    Audit Level: ${security.auditLevel}
+                </div>
+                <div class="status-${security.lastUpdate ? 'ok' : 'warning'}">
+                    Senaste uppdatering: ${security.lastUpdate || 'Okänd'}
+                </div>
+            `;
+            document.getElementById('security-status').innerHTML = html;
+        }
+        
+        function updateSystemStatus(system) {
+            const html = `
+                <div class="status-${system.diskUsage < 80 ? 'ok' : 'warning'}">
+                    Disk: ${system.diskUsage}%
+                </div>
+                <div class="status-${system.memoryUsage < 80 ? 'ok' : 'warning'}">
+                    Minne: ${system.memoryUsage}%
+                </div>
+                <div class="status-${system.uptime > 7 ? 'ok' : 'warning'}">
+                    Uptime: ${system.uptime} dagar
+                </div>
+            `;
+            document.getElementById('system-status').innerHTML = html;
+        }
+        
+        function updateLogs(logs) {
+            document.getElementById('logs').innerHTML = logs.join('\n');
+        }
+        
+        // Uppdatera var 30:e sekund
+        setInterval(refreshStatus, 30000);
+        
+        // Initial laddning
+        refreshStatus();
+    </script>
+</body>
+</html>

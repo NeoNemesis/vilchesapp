@@ -1,402 +1,25 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { 
-  PlusIcon, 
-  PencilIcon, 
+import { Link } from 'react-router-dom';
+import {
+  PlusIcon,
+  PencilIcon,
   TrashIcon,
   UserIcon,
   CalendarIcon,
   MapPinIcon,
   ClipboardDocumentListIcon,
-  PhotoIcon,
-  XMarkIcon,
-  UserPlusIcon
+  EyeIcon,
+  ArrowTopRightOnSquareIcon,
+  CheckCircleIcon,
+  UserPlusIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { api } from '../../services/api';
+import { Project, Contractor } from '../../types';
+import { ProjectModal } from '../../components/ProjectModal';
 
-interface Project {
-  id: string;
-  title: string;
-  description: string;
-  clientName: string;
-  clientEmail: string;
-  clientPhone?: string;
-  address: string;
-  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-  status: 'PENDING' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
-  estimatedHours?: number;
-  estimatedCost?: number; // Ändrat från budget
-  deadline?: string;
-  assignedToId?: string; // Ändrat från contractorId
-  assignedTo?: { // Ändrat från contractor
-    id: string;
-    name: string;
-    email: string;
-    company?: string;
-  };
-  createdAt: string;
-}
-
-interface Contractor {
-  id: string;
-  name: string;
-  email: string;
-  company?: string;
-  isActive: boolean;
-}
-
-const ProjectModal: React.FC<{
-  project?: Project;
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (data: any) => void;
-  contractors: Contractor[];
-}> = ({ project, isOpen, onClose, onSubmit, contractors }) => {
-  const [formData, setFormData] = useState({
-    title: project?.title || '',
-    description: project?.description || '',
-    clientName: project?.clientName || '',
-    clientEmail: project?.clientEmail || '',
-    clientPhone: project?.clientPhone || '',
-    address: project?.address || '',
-    priority: project?.priority || 'NORMAL',
-    estimatedHours: project?.estimatedHours || '',
-    budget: project?.budget || '',
-    deadline: project?.deadline ? project.deadline.split('T')[0] : '',
-    contractorId: project?.contractorId || '',
-  });
-
-  const [selectedImages, setSelectedImages] = useState<File[]>([]);
-  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-
-  // Uppdatera formData när project ändras
-  React.useEffect(() => {
-    if (project) {
-      setFormData({
-        title: project.title || '',
-        description: project.description || '',
-        clientName: project.clientName || '',
-        clientEmail: project.clientEmail || '',
-        clientPhone: project.clientPhone || '',
-        address: project.address || '',
-        priority: project.priority || 'NORMAL',
-        estimatedHours: project.estimatedHours || '',
-        budget: project.estimatedCost || '',
-        deadline: project.deadline ? project.deadline.split('T')[0] : '',
-        contractorId: project.assignedToId || '',
-      });
-    } else {
-      // Reset för nytt projekt
-      setFormData({
-        title: '',
-        description: '',
-        clientName: '',
-        clientEmail: '',
-        clientPhone: '',
-        address: '',
-        priority: 'NORMAL',
-        estimatedHours: '',
-        budget: '',
-        deadline: '',
-        contractorId: '',
-      });
-    }
-  }, [project]);
-
-  // Reset bilder när modalen öppnas/stängs
-  React.useEffect(() => {
-    if (!isOpen) {
-      setSelectedImages([]);
-      setImagePreviews([]);
-    }
-  }, [isOpen]);
-
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    
-    // Begränsa till max 5 bilder
-    const maxImages = 5;
-    const totalImages = selectedImages.length + files.length;
-    
-    if (totalImages > maxImages) {
-      toast.error(`Du kan bara ladda upp max ${maxImages} bilder`);
-      return;
-    }
-
-    // Kontrollera filstorlek (max 5MB per bild)
-    const maxSize = 5 * 1024 * 1024; // 5MB
-    const oversizedFiles = files.filter(file => file.size > maxSize);
-    
-    if (oversizedFiles.length > 0) {
-      toast.error('Vissa bilder är för stora. Max storlek är 5MB per bild.');
-      return;
-    }
-
-    // Lägg till nya bilder
-    setSelectedImages(prev => [...prev, ...files]);
-
-    // Skapa previews
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreviews(prev => [...prev, e.target?.result as string]);
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const removeImage = (index: number) => {
-    setSelectedImages(prev => prev.filter((_, i) => i !== index));
-    setImagePreviews(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const submitData = {
-      ...formData,
-      estimatedHours: formData.estimatedHours ? parseFloat(formData.estimatedHours.toString()) : undefined,
-      estimatedCost: formData.budget ? parseFloat(formData.budget.toString()) : undefined, // Ändrat från budget
-      deadline: formData.deadline ? new Date(formData.deadline).toISOString() : undefined,
-      assignedToId: formData.contractorId || undefined, // Ändrat från contractorId
-      images: selectedImages, // Lägg till bilder
-    };
-    
-    onSubmit(submitData);
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-50" onClick={onClose} />
-        <div className="relative bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 rounded-t-xl">
-            <h3 className="text-lg font-semibold text-white">
-              {project ? 'Redigera Projekt' : 'Nytt Projekt'}
-            </h3>
-          </div>
-          
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Projekttitel *
-              </label>
-              <input
-                type="text"
-                required
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="t.ex. Badrumsrenovering Vasastan"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Beskrivning *
-              </label>
-              <textarea
-                required
-                rows={3}
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Beskriv vad som ska göras..."
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Kundens namn *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.clientName}
-                  onChange={(e) => setFormData({ ...formData, clientName: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Förnamn Efternamn"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  E-post *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={formData.clientEmail}
-                  onChange={(e) => setFormData({ ...formData, clientEmail: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="kund@exempel.se"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Telefon
-                </label>
-                <input
-                  type="tel"
-                  value={formData.clientPhone}
-                  onChange={(e) => setFormData({ ...formData, clientPhone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="070-123 45 67"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Adress *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Gatuadress, Stad"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Prioritet
-                </label>
-                <select
-                  value={formData.priority}
-                  onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="LOW">Låg</option>
-                  <option value="NORMAL">Normal</option>
-                  <option value="HIGH">Hög</option>
-                  <option value="URGENT">Brådskande</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Deadline
-                </label>
-                <input
-                  type="date"
-                  value={formData.deadline}
-                  onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Budget (SEK)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={formData.budget}
-                  onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="t.ex. 25000"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tilldela till
-                </label>
-                <select
-                  value={formData.contractorId}
-                  onChange={(e) => setFormData({ ...formData, contractorId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="">-- Välj entreprenör --</option>
-                  {contractors.filter(c => c.isActive).map((contractor) => (
-                    <option key={contractor.id} value={contractor.id}>
-                      {contractor.name} {contractor.company ? `(${contractor.company})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Bilduppladdning */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Bilder (valfritt)
-              </label>
-              
-              <div className="space-y-4">
-                {/* Upload knapp */}
-                <div className="flex items-center justify-center w-full">
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <PhotoIcon className="w-8 h-8 mb-2 text-gray-400" />
-                      <p className="mb-2 text-sm text-gray-500">
-                        <span className="font-semibold">Klicka för att ladda upp</span> eller dra och släpp
-                      </p>
-                      <p className="text-xs text-gray-500">PNG, JPG, JPEG (max 5MB, max 5 bilder)</p>
-                    </div>
-                    <input
-                      type="file"
-                      className="hidden"
-                      multiple
-                      accept="image/*"
-                      onChange={handleImageSelect}
-                    />
-                  </label>
-                </div>
-
-                {/* Bildpreviews */}
-                {imagePreviews.length > 0 && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {imagePreviews.map((preview, index) => (
-                      <div key={index} className="relative group">
-                        <img
-                          src={preview}
-                          alt={`Preview ${index + 1}`}
-                          className="w-full h-24 object-cover rounded-lg border"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeImage(index)}
-                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <XMarkIcon className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Avbryt
-              </button>
-              <button
-                type="submit"
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all"
-              >
-                {project ? 'Uppdatera' : 'Skapa Projekt'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const AdminProjects: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -420,6 +43,9 @@ const AdminProjects: React.FC = () => {
     mutationFn: api.createProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-activities'] });
       setIsModalOpen(false);
       toast.success('Projekt skapat!');
     },
@@ -429,10 +55,13 @@ const AdminProjects: React.FC = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string, data: any }) => 
+    mutationFn: ({ id, data }: { id: string, data: any }) =>
       api.updateProject(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-activities'] });
       setIsModalOpen(false);
       setEditingProject(undefined);
       toast.success('Projekt uppdaterat!');
@@ -446,6 +75,9 @@ const AdminProjects: React.FC = () => {
     mutationFn: api.deleteProject,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-activities'] });
       toast.success('Projekt borttaget!');
     },
     onError: (error: any) => {
@@ -458,10 +90,35 @@ const AdminProjects: React.FC = () => {
       api.assignProject(projectId, contractorId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-activities'] });
       toast.success('Projekt tilldelat!');
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Kunde inte tilldela projekt');
+    }
+  });
+
+  const changeStatusMutation = useMutation({
+    mutationFn: ({ projectId, status }: { projectId: string; status: 'PENDING' | 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' }) =>
+      api.updateProject(projectId, { status }),
+    onSuccess: (_, { status }) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-activities'] });
+      const statusLabels: Record<string, string> = {
+        'PENDING': 'Väntar',
+        'ASSIGNED': 'Tilldelad',
+        'IN_PROGRESS': 'Pågående',
+        'COMPLETED': 'Färdig',
+        'CANCELLED': 'Avbruten'
+      };
+      toast.success(`Status ändrad till "${statusLabels[status]}"!`);
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Kunde inte ändra status');
     }
   });
 
@@ -512,7 +169,8 @@ const AdminProjects: React.FC = () => {
       case 'PENDING': return 'bg-yellow-100 text-yellow-800';
       case 'ASSIGNED': return 'bg-blue-100 text-blue-800';
       case 'IN_PROGRESS': return 'bg-green-100 text-green-800';
-      case 'COMPLETED': return 'bg-gray-100 text-gray-800';
+      case 'COMPLETED': return 'bg-green-100 text-green-800 border-green-200';
+      case 'CANCELLED': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -522,7 +180,8 @@ const AdminProjects: React.FC = () => {
       case 'PENDING': return 'Väntar';
       case 'ASSIGNED': return 'Tilldelad';
       case 'IN_PROGRESS': return 'Pågående';
-      case 'COMPLETED': return 'Klar';
+      case 'COMPLETED': return 'Färdig';
+      case 'CANCELLED': return 'Avbruten';
       default: return status;
     }
   };
@@ -580,6 +239,36 @@ const AdminProjects: React.FC = () => {
           >
             Otilldelade ({projects.filter((p: Project) => p.status === 'PENDING').length})
           </button>
+          <button
+            onClick={() => setFilterStatus('ASSIGNED')}
+            className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+              filterStatus === 'ASSIGNED' 
+                ? 'bg-blue-100 text-blue-800' 
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Tilldelade ({projects.filter((p: Project) => p.status === 'ASSIGNED').length})
+          </button>
+          <button
+            onClick={() => setFilterStatus('IN_PROGRESS')}
+            className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+              filterStatus === 'IN_PROGRESS' 
+                ? 'bg-green-100 text-green-800' 
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Pågående ({projects.filter((p: Project) => p.status === 'IN_PROGRESS').length})
+          </button>
+          <button
+            onClick={() => setFilterStatus('COMPLETED')}
+            className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+              filterStatus === 'COMPLETED' 
+                ? 'bg-green-100 text-green-800' 
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Färdiga ({projects.filter((p: Project) => p.status === 'COMPLETED').length})
+          </button>
         </div>
       </div>
 
@@ -596,14 +285,21 @@ const AdminProjects: React.FC = () => {
             {filteredProjects.map((project: Project) => (
               <div key={project.id} className="p-6 hover:bg-gray-50 transition-colors">
                 <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
+                  <Link 
+                    to={`/admin/projects/${project.id}`}
+                    className="flex-1 min-w-0 cursor-pointer group"
+                  >
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900 truncate">
+                      <h3 className="text-lg font-semibold text-gray-900 truncate group-hover:text-blue-600 transition-colors">
                         {project.title}
+                        {project.status === 'COMPLETED' && (
+                          <CheckCircleIcon className="inline-block h-5 w-5 text-green-600 ml-2" />
+                        )}
                       </h3>
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
                         {getStatusText(project.status)}
                       </span>
+                      <ArrowTopRightOnSquareIcon className="h-4 w-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                     
                     <p className="text-gray-600 mb-3">{project.description}</p>
@@ -629,9 +325,70 @@ const AdminProjects: React.FC = () => {
                         </div>
                       </div>
                     )}
-                  </div>
+                  </Link>
                   
                   <div className="flex items-center gap-2 ml-4">
+                    <Link
+                      to={`/admin/projects/${project.id}`}
+                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Visa detaljer"
+                    >
+                      <EyeIcon className="h-5 w-5" />
+                    </Link>
+
+                    {/* Quick status change dropdown */}
+                    <div className="relative group">
+                      <button
+                        className="p-2 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                        title="Ändra status"
+                      >
+                        <ArrowPathIcon className="h-5 w-5" />
+                      </button>
+
+                      <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-lg border opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+                        <div className="py-1">
+                          <p className="text-xs text-gray-500 px-3 py-1">Ändra status:</p>
+                          {project.status !== 'IN_PROGRESS' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                changeStatusMutation.mutate({ projectId: project.id, status: 'IN_PROGRESS' });
+                              }}
+                              className="block w-full text-left px-3 py-2 text-sm hover:bg-green-50 text-green-700"
+                            >
+                              ▶ Pågående
+                            </button>
+                          )}
+                          {project.status !== 'COMPLETED' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm('Markera som färdig?')) {
+                                  changeStatusMutation.mutate({ projectId: project.id, status: 'COMPLETED' });
+                                }
+                              }}
+                              className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-700"
+                            >
+                              ✓ Färdig
+                            </button>
+                          )}
+                          {project.status !== 'CANCELLED' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm('Avbryta projektet?')) {
+                                  changeStatusMutation.mutate({ projectId: project.id, status: 'CANCELLED' });
+                                }
+                              }}
+                              className="block w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-600"
+                            >
+                              ✕ Avbruten
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     {project.status === 'PENDING' && (
                       <div className="relative group">
                         <button
@@ -641,12 +398,12 @@ const AdminProjects: React.FC = () => {
                         >
                           <UserPlusIcon className="h-5 w-5" />
                         </button>
-                        
+
                         {/* Quick assign dropdown */}
                         <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
                           <div className="p-2">
                             <p className="text-xs text-gray-500 mb-2">Snabbtilldela till:</p>
-                            {contractors.filter(c => c.isActive).slice(0, 3).map((contractor) => (
+                            {contractors.filter((c: any) => c.isActive).slice(0, 3).map((contractor: any) => (
                               <button
                                 key={contractor.id}
                                 onClick={(e) => {
@@ -662,7 +419,7 @@ const AdminProjects: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
+
                     <button
                       onClick={() => handleEdit(project)}
                       className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -670,7 +427,7 @@ const AdminProjects: React.FC = () => {
                     >
                       <PencilIcon className="h-5 w-5" />
                     </button>
-                    
+
                     <button
                       onClick={() => handleDelete(project)}
                       className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -693,6 +450,7 @@ const AdminProjects: React.FC = () => {
         onClose={handleCloseModal}
         onSubmit={handleSubmit}
         contractors={contractors}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
       />
     </div>
   );

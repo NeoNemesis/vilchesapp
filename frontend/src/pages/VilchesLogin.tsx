@@ -1,18 +1,33 @@
-import React, { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 
 const VilchesLogin: React.FC = () => {
   const { user, login } = useAuth();
-  const [email, setEmail] = useState('info@vilchesab.se');
-  const [password, setPassword] = useState('VilchesAdmin2024!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Load saved credentials on component mount
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('rememberedEmail');
+    const savedPassword = localStorage.getItem('rememberedPassword');
+    const savedRememberMe = localStorage.getItem('rememberMe') === 'true';
+    
+    if (savedRememberMe && savedEmail && savedPassword) {
+      setEmail(savedEmail);
+      setPassword(savedPassword);
+      setRememberMe(true);
+    }
+  }, []);
+
   // Redirect if already logged in
   if (user) {
-    return <Navigate to={user.role === 'ADMIN' ? '/admin' : '/contractor'} replace />;
+    const redirectPath = user.role === 'ADMIN' ? '/admin' : user.role === 'EMPLOYEE' ? '/employee' : '/contractor';
+    return <Navigate to={redirectPath} replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -24,8 +39,20 @@ const VilchesLogin: React.FC = () => {
       const response = await api.login(email, password);
       login(response.user, response.token);
       
+      // Handle remember me functionality
+      if (rememberMe) {
+        localStorage.setItem('rememberedEmail', email);
+        localStorage.setItem('rememberedPassword', password);
+        localStorage.setItem('rememberMe', 'true');
+      } else {
+        localStorage.removeItem('rememberedEmail');
+        localStorage.removeItem('rememberedPassword');
+        localStorage.removeItem('rememberMe');
+      }
+      
       // Navigate after successful login
-      window.location.href = response.user.role === 'ADMIN' ? '/admin' : '/contractor';
+      const path = response.user.role === 'ADMIN' ? '/admin' : response.user.role === 'EMPLOYEE' ? '/employee' : '/contractor';
+      window.location.href = path;
     } catch (error: any) {
       setError(error.response?.data?.message || 'Inloggning misslyckades');
     } finally {
@@ -44,13 +71,13 @@ const VilchesLogin: React.FC = () => {
                 <span className="text-white font-bold text-lg">V</span>
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Vilches Entreprenad</h1>
+                <h1 className="text-xl font-bold text-gray-900">VilchesApp</h1>
                 <p className="text-sm text-gray-500">Projekthantering</p>
               </div>
             </div>
             <div className="text-right text-sm text-gray-600">
-              <p>📞 070-797 85 47</p>
-              <p>📧 info@vilchesab.se</p>
+              <p>📞 VilchesApp Support</p>
+              <p>📧 support@vilchesapp.com</p>
             </div>
           </div>
         </div>
@@ -136,6 +163,20 @@ const VilchesLogin: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Remember Me Checkbox */}
+                <div className="flex items-center">
+                  <input
+                    id="rememberMe"
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="rememberMe" className="ml-2 block text-sm text-gray-700">
+                    Kom ihåg mig
+                  </label>
+                </div>
+
                 <button
                   type="submit"
                   disabled={isLoading}
@@ -153,33 +194,24 @@ const VilchesLogin: React.FC = () => {
                     'Logga in'
                   )}
                 </button>
-              </form>
 
-              {/* Test Info */}
-              <div className="mt-8 pt-6 border-t border-gray-200">
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <div className="flex">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-blue-800">Test-inloggning</h3>
-                      <div className="mt-2 text-sm text-blue-700">
-                        <p>Använd förfyllda uppgifter för att testa systemet</p>
-                      </div>
-                    </div>
-                  </div>
+                {/* Forgot Password Link */}
+                <div className="text-center mt-4">
+                  <Link
+                    to="/forgot-password"
+                    className="text-sm text-blue-600 hover:text-blue-500 transition-colors duration-200"
+                  >
+                    Glömt lösenord?
+                  </Link>
                 </div>
-              </div>
+              </form>
             </div>
           </div>
 
           {/* Footer */}
           <div className="text-center mt-8">
             <p className="text-sm text-gray-500">
-              © 2025 Vilches Entreprenad AB | Org.nr: 559391-5654
+              Powered by VilchesApp — Created by Victor Vilches
             </p>
             <p className="text-xs text-gray-400 mt-2">
               Uppsala & omgivning | ✓ Försäkrad & F-skattsedel

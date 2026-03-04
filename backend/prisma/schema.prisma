@@ -7,47 +7,138 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================
+// APP SETTINGS (Setup Wizard & Feature Flags)
+// ============================================
+
+model AppSettings {
+  id          String  @id @default("default")
+
+  // === COMPANY INFO ===
+  companyName String
+  orgNumber   String?
+  logo        String?
+  industry    String  @default("general") // bygg, stad, el-vvs, konsult, general
+
+  // === FEATURE FLAGS ===
+  enableQuotes       Boolean @default(true)
+  enableTimeReports  Boolean @default(true)
+  enableRotDeduction Boolean @default(false)
+  enableRutDeduction Boolean @default(false)
+  enableMapView      Boolean @default(false)
+  enableSms          Boolean @default(false)
+  enableEmailMonitor Boolean @default(false)
+  enableTelegram     Boolean @default(false)
+  enableAnalytics    Boolean @default(false)
+  enableAutomations  Boolean @default(false)
+
+  // === CUSTOM PRICING (JSON — overrides default pricing.ts) ===
+  customPricing    Json?  // { "MALNING": 620, "SNICKERI": 688, ... }
+  customCategories Json?  // ["Målning", "Snickeri", ...] — custom work categories
+  currency         String @default("SEK")
+  vatRate          Float  @default(25)
+
+  // === BRANDING ===
+  primaryColor   String @default("#2C7A4B")
+  accentColor    String @default("#F97316")
+
+  // === SMTP CONFIG (stored here instead of only .env) ===
+  smtpHost      String?
+  smtpPort      Int?
+  smtpSecure    Boolean @default(true)
+  smtpUser      String?
+  smtpPass      String?
+  smtpFromName  String?
+  smtpFromEmail String?
+
+  // === SETUP STATUS ===
+  setupCompleted Boolean  @default(false)
+  setupAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// BEFINTLIGA MODELLER
+// ============================================
+
 model User {
-  id               String         @id @default(uuid())
-  email            String         @unique
+  id               String              @id @default(uuid())
+  email            String              @unique
   name             String
   password         String
   phone            String?
   company          String?
   role             Role
-  isActive         Boolean        @default(true)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  isActive         Boolean             @default(true)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  resetToken       String?
+  resetTokenExpiry DateTime?
+
+  // === ANSTÄLLNINGSINFORMATION ===
+  hourlyRate          Float?
+  vacationPayPercent  Float?    // Semesterersättning i % (t.ex. 12)
+  personalNumber      String?   // Personnummer
+  address             String?
+  bankAccount         String?   // Bankkonto/clearing
+  employmentStartDate DateTime?
+  employmentType      String?   // "Heltid", "Deltid", "Timanställd"
   notifications    Notification[]
-  assignedProjects Project[]      @relation("AssignedProjects")
-  createdProjects  Project[]      @relation("CreatedProjects")
-  reports          Report[]       @relation("ReportAuthor")
+  assignedProjects Project[]           @relation("AssignedProjects")
+  createdProjects  Project[]           @relation("CreatedProjects")
+  reports          Report[]            @relation("ReportAuthor")
+  quotes           Quote[]             @relation("QuoteCreator") // NY: Skapade offerter
+  archivedProjects Project[]           @relation("ArchivedProjects")
+  projectTeams     ProjectTeamMember[] @relation("UserProjectTeams")
+  assignedTeams    ProjectTeamMember[] @relation("AssignedByUser")
+
+  // === TIDSRAPPORTERING ===
+  timeReports         TimeReport[] @relation("UserTimeReports")
+  approvedTimeReports TimeReport[] @relation("ApprovedByUser")
 }
 
 model Project {
-  id             String         @id @default(uuid())
-  projectNumber  String         @unique @default(cuid())
+  id             String        @id @default(uuid())
+  projectNumber  String        @unique @default(cuid())
   title          String
   description    String
   address        String
   clientName     String
   clientEmail    String
   clientPhone    String?
-  priority       Priority       @default(NORMAL)
-  status         ProjectStatus  @default(PENDING)
+  priority       Priority      @default(NORMAL)
+  status         ProjectStatus @default(PENDING)
   estimatedHours Float?
   estimatedCost  Float?
   deadline       DateTime?
   originalEmail  String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   createdById    String
   assignedToId   String?
-  notifications  Notification[]
-  assignedTo     User?          @relation("AssignedProjects", fields: [assignedToId], references: [id])
-  createdBy      User           @relation("CreatedProjects", fields: [createdById], references: [id])
-  images         ProjectImage[]
-  reports        Report[]
+  quoteId        String?       @unique // NY: Koppling till offert
+
+  // === ARKIVERING ===
+  archived      Boolean             @default(false)
+  archivedAt    DateTime?
+  archivedById  String?
+  notifications Notification[]
+  assignedTo    User?               @relation("AssignedProjects", fields: [assignedToId], references: [id])
+  createdBy     User                @relation("CreatedProjects", fields: [createdById], references: [id])
+  images        ProjectImage[]
+  reports       Report[]
+  quote         Quote?              @relation("QuoteToProject", fields: [quoteId], references: [id]) // NY
+  archivedBy    User?               @relation("ArchivedProjects", fields: [archivedById], references: [id])
+  teamMembers      ProjectTeamMember[] @relation("ProjectTeam")
+  timeReportEntries TimeReportEntry[]  @relation("ProjectTimeEntries")
+
+  @@index([createdById])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([archived])
 }
 
 model Report {
@@ -64,9 +155,14 @@ model Report {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   authorId        String
+  status          ReportStatus  @default(DRAFT)
   author          User          @relation("ReportAuthor", fields: [authorId], references: [id])
   project         Project       @relation(fields: [projectId], references: [id])
   images          ReportImage[]
+
+  @@index([projectId])
+  @@index([authorId])
+  @@index([createdAt])
 }
 
 model ProjectImage {
@@ -78,7 +174,7 @@ model ProjectImage {
   size         Int
   url          String
   uploadedAt   DateTime @default(now())
-  project      Project  @relation(fields: [projectId], references: [id])
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model ReportImage {
@@ -91,7 +187,20 @@ model ReportImage {
   url          String
   description  String?
   uploadedAt   DateTime @default(now())
-  report       Report   @relation(fields: [reportId], references: [id])
+  report       Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+}
+
+model QuoteImage {
+  id           String   @id @default(uuid())
+  quoteId      String
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  description  String?
+  uploadedAt   DateTime @default(now())
+  quote        Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 }
 
 model Notification {
@@ -107,23 +216,323 @@ model Notification {
   createdAt   DateTime         @default(now())
   project     Project?         @relation(fields: [projectId], references: [id])
   user        User?            @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
 }
 
-model EmailTemplate {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  subject   String
-  body      String
-  variables Json
-  isActive  Boolean  @default(true)
+// ============================================
+// OFFERT-SYSTEM (NYTT - AI-OPTIMERAT)
+// ============================================
+
+model Quote {
+  id          String @id @default(uuid())
+  quoteNumber String @unique // "2025-0001"
+
+  // === KUND-INFO ===
+  clientName    String
+  clientEmail   String?
+  clientPhone   String?
+  clientAddress String?
+
+  // === AI-OPTIMERAD KATEGORISERING ===
+  mainCategory ProjectMainCategory
+  subCategory  String // "BADRUM", "HELRENOVERING_KOK", etc
+  projectType  String // "Helrenovering badrum med golvvärme"
+
+  // AI-SÖKNING: Nyckelord för semantisk matchning
+  keywords String[] // ["badrum", "golvvärme", "kakel", "8kvm", "bromma"]
+
+  // AI-SÖKNING: Fulltext search (genereras automatiskt)
+  searchText String? // Kombinerad text för sökning
+
+  // === ARBETSBESKRIVNING ===
+  description String? // Detaljerad arbetsbeskrivning
+
+  // === MÅTT OCH OMFATTNING ===
+  areaSqm      Float? // Area i kvm
+  lengthMeters Float? // Längd i meter (för tak, räcken, etc)
+  rooms        Int? // Antal rum (för målning)
+  heightMeters Float? // Höjd (för fasad, etc)
+
+  // === KALKYLATOR-SPECIFIKA FÄLT ===
+  materialType String? // "Tryckimpregnerat 28x120", "Alkyd/Akrylat", etc
+  omfattning   String? // "Nej", "Små", "Medel", "Stora" (för inomhusmålning)
+  floorCount   Int? // Antal våningar (för fasadmålning)
+
+  // === KOMPLEXITET (för AI-matchning) ===
+  complexity        ProjectComplexity
+  complexityReason  String? // "Gammalt hus från 1950-tal med överraskningar"
+  existingCondition ProjectCondition
+
+  // === SPECIAL FEATURES (strukturerad för AI) ===
+  hasGolvvarme    Boolean @default(false)
+  hasElUpdate     Boolean @default(false)
+  hasVvsUpdate    Boolean @default(false)
+  hasMovingWalls  Boolean @default(false)
+  hasSpecialTiles Boolean @default(false)
+  hasStaircase    Boolean @default(false)
+  hasBalcony      Boolean @default(false)
+
+  specialFeaturesJson Json? // Extra features som JSON
+
+  // === PLATS (för AI-justering) ===
+  location          String // "Bromma", "Uppsala", etc
+  locationType      LocationType // city_center, suburb, countryside
+  accessDifficulty  AccessDifficulty // easy, medium, difficult
+  parkingAvailable  Boolean          @default(true)
+  elevatorAvailable Boolean          @default(false)
+
+  // === ESTIMAT ===
+  estimatedTotalHours   Float
+  estimatedLaborCost    Float
+  estimatedMaterialCost Float
+  estimatedTotalCost    Float
+
+  // ROT-avdrag
+  applyRotDeduction Boolean @default(true)
+  rotDeduction      Float?
+  totalAfterRot     Float?
+
+  // Moms
+  includeVat   Boolean @default(false)
+  vatRate      Float   @default(25)
+  vatAmount    Float?
+  totalWithVat Float?
+
+  // === STATUS ===
+  status     QuoteStatus @default(DRAFT)
+  validUntil DateTime?
+
+  // === AI-MATCHNING (viktade faktorer) ===
+  similarityScore Float? // Används vid AI-sökning (0-1)
+  confidenceLevel Float? // AI:ns självsäkerhet i estimatet (0-1)
+  basedOnQuoteIds String[] // ID:n till liknande offerter som användes
+
+  // === RELATIONER ===
+  lineItems QuoteLineItem[]
+  materials QuoteMaterial[]
+  tags      QuoteTag[]
+  images    QuoteImage[]
+  project   Project?        @relation("QuoteToProject")
+
+  // === FAKTISKT UTFALL (Post-Project för AI-träning) ===
+  actualTotalHours   Float?
+  actualLaborCost    Float?
+  actualMaterialCost Float?
+  actualTotalCost    Float?
+
+  actualLineItems Json? // Faktiska timmar per kategori
+
+  // Post-project analys (för AI-lärande)
+  surprises             Json? // [{ desc: "Mögel bakom kakel", hours: 12, cost: 8500 }]
+  lessonsLearned        String?
+  customerSatisfaction  Int? // 1-5
+  wouldPriceDifferently String?
+
+  variancePercent Float? // (actual - estimated) / estimated * 100
+
+  // === PDF OCH EMAILS ===
+  pdfUrl String?
+  sentAt DateTime?
+  sentTo String?
+
+  // === METADATA ===
+  createdById String
+  createdBy   User     @relation("QuoteCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([quoteNumber])
+  @@index([clientEmail])
+  @@index([status])
+  @@index([mainCategory, subCategory])
+  @@index([createdAt])
+  @@index([keywords]) // För array-sökning
+  @@index([areaSqm, complexity]) // För range-sökning
+  @@index([location])
+  @@index([createdById])
+}
+
+// Arbetsuppdelning per kategori
+model QuoteLineItem {
+  id      String @id @default(uuid())
+  quoteId String
+  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  category       WorkCategoryType
+  customCategory String? // För egen kategori (när category = OVRIGT)
+  description    String
+
+  // Nya flexibla fält
+  quantity  Float? // Antal (ersätter/kompletterar estimatedHours)
+  unit      String? // Enhet (tim, st, dag, mil, etc.)
+  unitPrice Float? // Pris per enhet (ersätter/kompletterar hourlyRate)
+
+  // Bakåtkompatibilitet
+  estimatedHours Float
+  hourlyRate     Float
+  totalCost      Float
+
+  // Faktiskt (efter projektet)
+  actualHours   Float?
+  varianceHours Float? // actual - estimated
+
+  sortOrder Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([quoteId])
+  @@index([category])
 }
+
+// Material per offert
+model QuoteMaterial {
+  id      String @id @default(uuid())
+  quoteId String
+  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  // Referens till materialbibliotek
+  materialId String?
+  material   Material? @relation(fields: [materialId], references: [id])
+
+  // Eller custom material
+  customName String?
+
+  description String
+  quantity    Float
+  unit        String // "kvm", "st", "meter", etc
+  unitPrice   Float
+  totalCost   Float
+
+  supplier String?
+
+  // Faktiskt förbrukat (för AI-lärande)
+  actualQuantity Float?
+  actualCost     Float?
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([quoteId])
+  @@index([materialId])
+}
+
+// Materialbibliotek (återanvändbart)
+model Material {
+  id String @id @default(uuid())
+
+  name     String // "Kakel Hornbach Premium Grå 60x60"
+  category MaterialCategory
+
+  // AI-SÖKNING: Nyckelord för material
+  keywords String[] // ["kakel", "hornbach", "grå", "60x60", "premium"]
+
+  unit           String // "kvm", "st", "meter"
+  currentPrice   Float
+  priceUpdatedAt DateTime @default(now())
+
+  supplier              String?
+  supplierArticleNumber String?
+  supplierUrl           String?
+
+  // Typisk användning (för AI-estimering)
+  typicalUsagePerSqm Float? // 1.15 (15% spill)
+  typicalUsageNote   String?
+
+  // Historik (för pristrend-analys)
+  priceHistory Json? // [{ date: "2025-01-01", price: 450 }, ...]
+
+  // Alternativ
+  premiumAlternativeId String?
+  budgetAlternativeId  String?
+
+  // Relationer
+  quoteMaterials QuoteMaterial[]
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([keywords])
+  @@index([name])
+}
+
+// Tags för AI-sökning och kategorisering
+model QuoteTag {
+  id      String @id @default(uuid())
+  quoteId String
+  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  tag      String // "badrum", "golvvärme", "gammalt-hus", etc
+  category TagCategory // LOCATION, FEATURE, CONDITION, etc
+  weight   Float       @default(1.0) // Vikt för AI-matchning
+
+  autoGenerated Boolean @default(false) // AI-genererad eller manuell
+
+  createdAt DateTime @default(now())
+
+  @@unique([quoteId, tag])
+  @@index([tag])
+  @@index([category])
+}
+
+// Projektmallar (för snabb offert-skapande)
+model QuoteTemplate {
+  id String @id @default(uuid())
+
+  name        String // "Standard Badrum 8 kvm"
+  description String?
+
+  // AI-SÖKNING
+  keywords String[]
+
+  mainCategory ProjectMainCategory
+  subCategory  String
+  projectType  String
+
+  // Default värden
+  defaultComplexity ProjectComplexity
+  defaultAreaSqm    Float?
+
+  // Moms-inställning för mallen
+  includeVat Boolean @default(false)
+  vatRate    Float   @default(25)
+
+  // Template för arbetsuppdelning (JSON)
+  workTemplate Json // [{ category: "RIVNING", hours: 16, rate: 650 }, ...]
+
+  // Template för material (JSON)
+  materialTemplate Json // [{ materialId: "...", quantity: 9.2 }, ...]
+
+  // Usage counter (för popularitetsbaserad sortering)
+  timesUsed  Int       @default(0)
+  lastUsedAt DateTime?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([mainCategory])
+  @@index([keywords])
+}
+
+// ============================================
+// ENUMS
+// ============================================
 
 enum Role {
   ADMIN
   CONTRACTOR
   CLIENT
+  EMPLOYEE
 }
 
 enum Priority {
@@ -143,10 +552,258 @@ enum ProjectStatus {
   SENT_TO_CLIENT
 }
 
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
 enum NotificationType {
   PROJECT_ASSIGNED
   REPORT_SUBMITTED
   PROJECT_COMPLETED
   DEADLINE_REMINDER
   GENERAL
+  LOGIN_FAILED
+  LOGIN_SUCCESS
+  UNAUTHORIZED_ACCESS
+  SUSPICIOUS_ACTIVITY
+  PROFILE_UPDATED
+  EMAIL_CHANGE_FAILED
+  EMAIL_CHANGED
+  PASSWORD_CHANGE_FAILED
+  PASSWORD_CHANGED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_FAILED
+  PASSWORD_RESET_SUCCESS
+  TOKEN_REFRESHED
+  WELCOME_EMAIL_SENT
+  QUOTE_CREATED // NYTT
+  QUOTE_SENT // NYTT
+  QUOTE_ACCEPTED // NYTT
+  QUOTE_REJECTED // NYTT
+}
+
+// === OFFERT-SYSTEM ENUMS ===
+
+enum ProjectMainCategory {
+  // VILCHES HUVUDTJÄNSTER (från vilchesab.se)
+  MALNING_TAPETSERING // Måleri & Tapetsering
+  SNICKERIARBETEN // Snickeriarbeten
+  TOTALRENOVERING // Totalrenovering
+  MOBELMONTERING // Möbelmontering
+
+  // SPECIFIKA PROJEKT
+  VATRUM // Våtrum/Badrum
+  KOK // Kök
+  FASADMALNING // Fasadmålning
+  ALTAN_TRADACK // Altan & Trädäck
+  GARDEROB // Garderob
+  TAPETSERING // Tapetsering
+
+  // LEGACY (behålls för bakåtkompatibilitet)
+  TAK
+  MALNING
+  SNICKERI
+  EL
+  VVS
+  MURNING
+
+  // ÖVRIGT
+  KOMBINERAT // Kombinerade projekt
+}
+
+enum ProjectComplexity {
+  VERY_SIMPLE // 1
+  SIMPLE // 2
+  MEDIUM // 3
+  COMPLEX // 4
+  VERY_COMPLEX // 5
+}
+
+enum ProjectCondition {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  VERY_POOR
+}
+
+enum QuoteStatus {
+  DRAFT // Utkast
+  SENT // Skickad till kund
+  ACCEPTED // Accepterad
+  REJECTED // Nekad
+  EXPIRED // Utgången
+  CANCELLED // Avbruten
+}
+
+enum WorkCategoryType {
+  // FÖRBEREDELSE
+  RIVNING
+  FORBEREDELSE
+  SKRAPNING
+  RENGORING
+
+  // YRKESROLLER (Vilches timpris)
+  MALNING // Målare: 620 kr/h
+  SNICKERI // Snickare: 688 kr/h
+  MURNING // Murare: 688 kr/h
+  EL // Elektriker: 750 kr/h
+  VVS
+
+  // SPECIFIKA ARBETEN
+  KAKEL
+  TAPETSERING
+  FASADMALNING
+  GOLVVARME
+  BYGGNATION
+  BYGG // Legacy alias för BYGGNATION
+  MONTERING
+  PLATSBYGGDA_MOBEL
+  KOKSMONTAGE
+
+  // AVSLUT
+  STADNING
+  FINISH
+  SPECIALARBETE
+
+  // TILLÄGGSKOSTNADER
+  BILERSATTNING // Bilersättning
+  SOPHANTERING // Sophantering
+  OVRIGT // Övrigt
+}
+
+enum MaterialCategory {
+  KAKEL_KLINKER
+  VVS_PORSLIN
+  VVS_DELAR
+  EL_ARMATURER
+  EL_MATERIAL
+  BYGG_MATERIAL
+  FARG_FINISH
+  GOLVVARME
+  KOK_LUCKOR
+  KOK_BENKSKIVA
+  VITVAROR
+  TRADGARD
+  VERKTYG
+  OVRIGT
+}
+
+enum LocationType {
+  CITY_CENTER
+  SUBURB
+  COUNTRYSIDE
+}
+
+enum AccessDifficulty {
+  EASY
+  MEDIUM
+  DIFFICULT
+}
+
+enum TagCategory {
+  LOCATION // Plats-relaterat
+  FEATURE // Special features
+  CONDITION // Skick
+  MATERIAL // Material-typ
+  WORK_TYPE // Arbetstyp
+  CLIENT_TYPE // Kundtyp
+  COMPLEXITY // Komplexitet
+  SEASON // Säsong
+}
+
+// === PROJEKT-TEAM (Flera entreprenörer per projekt) ===
+enum TeamRole {
+  LEAD // Huvudansvarig
+  MEMBER // Teammedlem
+  ASSISTANT // Assistent
+}
+
+model ProjectTeamMember {
+  id           String   @id @default(uuid())
+  projectId    String
+  userId       String
+  role         TeamRole @default(MEMBER)
+  assignedAt   DateTime @default(now())
+  assignedById String
+
+  project    Project @relation("ProjectTeam", fields: [projectId], references: [id], onDelete: Cascade)
+  user       User    @relation("UserProjectTeams", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User    @relation("AssignedByUser", fields: [assignedById], references: [id])
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+// ============================================
+// TIDSRAPPORTERING
+// ============================================
+
+enum TimeReportStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+model TimeReport {
+  id            String           @id @default(uuid())
+  userId        String
+  weekNumber    Int
+  year          Int
+  weekStartDate DateTime
+  status        TimeReportStatus @default(DRAFT)
+  totalHours    Float            @default(0)
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  approvedById  String?
+  rejectionReason String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  user       User              @relation("UserTimeReports", fields: [userId], references: [id])
+  approvedBy User?             @relation("ApprovedByUser", fields: [approvedById], references: [id])
+  entries    TimeReportEntry[]
+
+  @@unique([userId, weekNumber, year])
+  @@index([userId])
+  @@index([status])
+  @@index([year, weekNumber])
+}
+
+model TimeReportEntry {
+  id             String  @id @default(uuid())
+  timeReportId   String
+  projectId      String?
+  activityName   String
+  comment        String?
+  mondayHours    Float   @default(0)
+  tuesdayHours   Float   @default(0)
+  wednesdayHours Float   @default(0)
+  thursdayHours  Float   @default(0)
+  fridayHours    Float   @default(0)
+  saturdayHours  Float   @default(0)
+  sundayHours    Float   @default(0)
+  totalHours     Float   @default(0)
+  sortOrder      Int     @default(0)
+
+  timeReport TimeReport @relation(fields: [timeReportId], references: [id], onDelete: Cascade)
+  project    Project?   @relation("ProjectTimeEntries", fields: [projectId], references: [id])
+
+  @@index([timeReportId])
+}
+
+model AccountantSettings {
+  id          String   @id @default(uuid())
+  name        String
+  email       String
+  company     String?
+  phone       String?
+  updatedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

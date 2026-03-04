@@ -1,0 +1,324 @@
+{
+  "updatedAt": "2026-02-06T12:02:20.000Z",
+  "createdAt": "2026-02-04T06:12:52.000Z",
+  "id": "29d5ba53-3c70-44fb-9cf6-ad7e17948adc",
+  "name": "Vilches Ads 6: Meta Lead Poller (FIXED)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        400
+      ],
+      "id": "18eb544b-7d8d-478d-9f91-d2e4480a0046"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://graph.facebook.com/v24.0/946038841104025/leads?fields=id,created_time,field_data,ad_id,adset_id,adset_name,campaign_id,campaign_name&access_token={{ $env.FACEBOOK_ACCESS_TOKEN }}&limit=25",
+        "options": {}
+      },
+      "name": "Fetch Meta Leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        460,
+        400
+      ],
+      "id": "4c32cfdb-aff2-4ce6-b66d-dfedc636def1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.item.json;\nconst leads = response.data || [];\n\nif (leads.length === 0) {\n  return [{ json: { skip: true, count: 0, meta_lead_ids: [] } }];\n}\n\nconst metaLeadIds = leads.map(l => l.id);\n\nconst transformedLeads = leads.map(lead => {\n  const fieldData = lead.field_data || [];\n  const getField = (...keys) => {\n    for (const key of keys) {\n      const field = fieldData.find(f => f.name === key);\n      if (field) return field.values[0];\n    }\n    return '';\n  };\n\n  return {\n    meta_lead_id: lead.id,\n    created_time: lead.created_time,\n    name: getField('f\\u00f6rnamn', 'first_name') || 'Unknown',\n    email: getField('e-post', 'email'),\n    phone: getField('telefonnummer', 'phone') || '',\n    address: getField('vilken_ort_bor_du_i?') || '',\n    message: getField('beskriv_kort_vad_du_beh\\u00f6ver_hj\\u00e4lp_med') || 'No description',\n    source: 'meta_ads',\n    // Campaign tracking from Meta API\n    ad_id: lead.ad_id || '',\n    ad_set_id: lead.adset_id || '',\n    campaign_name: lead.adset_name || lead.campaign_name || ''\n  };\n});\n\nreturn [{\n  json: {\n    skip: false,\n    count: leads.length,\n    meta_lead_ids: metaLeadIds,\n    leads: transformedLeads\n  }\n}];"
+      },
+      "name": "Transform Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        400
+      ],
+      "id": "793df72a-5e24-4bc6-9ac8-b978efccc57d"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": true,
+              "operation": "notEqual"
+            }
+          ]
+        }
+      },
+      "name": "Has Leads",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        900,
+        400
+      ],
+      "id": "54e09731-2ab4-4ea3-9764-76e4f2448ae5"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT meta_lead_id FROM ad_leads WHERE meta_lead_id = ANY(ARRAY[{{ $json.meta_lead_ids.map(id => \"'\" + id + \"'\").join(',') }}]::text[]);",
+        "options": {}
+      },
+      "name": "Get Existing Lead IDs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1100,
+        300
+      ],
+      "id": "get-existing-ids",
+      "credentials": {
+        "postgres": {
+          "id": "postgres-social-media-2025",
+          "name": "PostgreSQL Account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Hämta leads från Transform Leads\nconst allLeads = $('Transform Leads').item.json.leads;\n\n// Hämta existerande IDs från PostgreSQL\nconst existingResults = $input.all();\nconst existingIds = new Set();\n\nfor (const item of existingResults) {\n  if (item.json && item.json.meta_lead_id) {\n    existingIds.add(item.json.meta_lead_id);\n  }\n}\n\n// Filtrera: behåll endast NYA leads\nconst newLeads = allLeads.filter(lead => !existingIds.has(lead.meta_lead_id));\n\nconsole.log(`Meta Leads: ${allLeads.length} totalt, ${existingIds.size} redan i DB, ${newLeads.length} nya`);\n\nif (newLeads.length === 0) {\n  // Inga nya leads - returnera skip-flagga\n  return [{ json: { skip: true, reason: 'no_new_leads', checked: allLeads.length, existing: existingIds.size } }];\n}\n\n// Returnera varje ny lead som separat item\nreturn newLeads.map(lead => ({ json: lead }));"
+      },
+      "name": "Filter New Leads Only",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "id": "filter-new-leads"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skip }}",
+              "value2": true,
+              "operation": "notEqual"
+            }
+          ]
+        }
+      },
+      "name": "Has New Leads?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        300
+      ],
+      "id": "has-new-leads"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/webhook/ads/lead-intake",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{ $json.name }}"
+            },
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $json.phone }}"
+            },
+            {
+              "name": "address",
+              "value": "={{ $json.address }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "source",
+              "value": "meta_ads"
+            },
+            {
+              "name": "meta_lead_id",
+              "value": "={{ $json.meta_lead_id }}"
+            },
+            {
+              "name": "ad_id",
+              "value": "={{ $json.ad_id }}"
+            },
+            {
+              "name": "ad_set_id",
+              "value": "={{ $json.ad_set_id }}"
+            },
+            {
+              "name": "campaign_name",
+              "value": "={{ $json.campaign_name }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send to Lead Receiver",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1700,
+        200
+      ],
+      "id": "a3981dd9-782b-4f79-8def-70658b30a2ab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inga nya leads denna körning\nconst data = $input.item.json;\nconsole.log(`Skipped: ${data.checked || 0} leads checked, ${data.existing || 0} already in DB`);\nreturn { json: { status: 'no_new_leads', ...data } };"
+      },
+      "name": "Log No New Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        400
+      ],
+      "id": "log-no-new"
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Fetch Meta Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Meta Leads": {
+      "main": [
+        [
+          {
+            "node": "Transform Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Leads": {
+      "main": [
+        [
+          {
+            "node": "Has Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Leads": {
+      "main": [
+        [
+          {
+            "node": "Get Existing Lead IDs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Get Existing Lead IDs": {
+      "main": [
+        [
+          {
+            "node": "Filter New Leads Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter New Leads Only": {
+      "main": [
+        [
+          {
+            "node": "Has New Leads?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Leads?": {
+      "main": [
+        [
+          {
+            "node": "Send to Lead Receiver",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log No New Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "8b05ba92-7159-4d18-95c8-79ad8eb00be3",
+  "versionCounter": 48,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-02-04T06:14:09.135Z",
+      "createdAt": "2026-02-04T06:14:09.135Z",
+      "role": "workflow:owner",
+      "workflowId": "29d5ba53-3c70-44fb-9cf6-ad7e17948adc",
+      "projectId": "bocQoFmdWqy1ZsSg",
+      "project": {
+        "updatedAt": "2025-12-09T00:16:47.782Z",
+        "createdAt": "2025-12-07T12:41:10.467Z",
+        "id": "bocQoFmdWqy1ZsSg",
+        "name": "Victor  Vilches <vilcheseab@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

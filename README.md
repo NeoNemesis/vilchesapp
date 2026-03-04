@@ -1,221 +1,166 @@
-# 🏗️ Vilches Entreprenad AB - Property Management System
+# VilchesApp
 
-Ett professionellt projektledningssystem för bygg- och fastighetsentreprenörer, byggt med modern teknologi för att hantera projekt, underleverantörer och kundkommunikation.
+**Professional project management system for contractors and service companies.**
 
-## ✨ Funktioner
+Built by [Victor Vilches](https://github.com/NeoNemesis) — originally developed for construction and renovation companies in Sweden, now available as an open-source self-hosted solution for any business.
 
-### 🎯 Projekthantering
-- **Automatisk projektskapning** från email (info@vilchesab.se)
-- **Bilduppladdning** för projekt och rapporter
-- **Projektstatus-spårning** (PENDING → ASSIGNED → IN_PROGRESS → REPORTED → COMPLETED)
-- **Prioritetshantering** (LOW, NORMAL, HIGH, URGENT)
-- **Deadline-hantering** med påminnelser
+## Features
 
-### 👥 Underleverantörshantering
-- **Entreprenör-registrering** med välkomstmail
-- **Projektacceptering/avvisning** av tilldelade uppdrag
-- **Rapportsystem** med bilder och progress-tracking
-- **Automatiska notifikationer** vid statusändringar
+- **Project Management** — Create, assign, and track projects with team members
+- **Quote System** — AI-powered estimates, PDF generation, email delivery
+- **Time Reports** — Weekly hour tracking with approval workflow, PDF/CSV export
+- **Employee Management** — Contractors and employees with role-based access
+- **ROT/RUT Tax Deductions** — Swedish tax deduction calculations (optional)
+- **Material Library** — Track materials with price history and supplier info
+- **Email Integration** — SMTP notifications, welcome emails, password resets
+- **Maps** — Geospatial project locations with Leaflet
+- **Analytics** — Google Analytics 4 integration (optional)
+- **SMS Notifications** — Via 46elks Swedish SMS API (optional)
+- **Telegram Notifications** — Bot integration (optional)
+- **Automation** — n8n workflow integration (optional)
+- **PWA** — Installable as a mobile app from the browser
 
-### 📊 Admin Dashboard
-- **Realtids-statistik** över alla projekt
-- **Analytics och grafer** för intäkter och projekt
-- **Aktivitets-feed** med senaste händelser
-- **Snabb åtkomst** till viktiga funktioner
+## Quick Start
 
-### 📧 Email-integration
-- **IMAP-övervakning** av info@vilchesab.se
-- **Automatisk projektgenerering** från leverantörsemail
-- **Professionella notifikationer** till kunder och entreprenörer
-- **Lösenordsåterställning** via email
+### Option 1: Docker (Recommended)
 
-## 🚀 Teknisk Stack
-
-### Backend
-- **Node.js** med TypeScript
-- **Express.js** för REST API
-- **Prisma ORM** med PostgreSQL
-- **JWT-autentisering**
-- **Multer** för filuppladdning
-- **Nodemailer** för email-hantering
-- **IMAP** för email-övervakning
-
-### Frontend
-- **React 18** med TypeScript
-- **Vite** som build tool
-- **Tailwind CSS** för styling
-- **React Query** för state management
-- **React Router** för navigation
-- **Heroicons** för ikoner
-- **Recharts** för grafer och diagram
-
-### Databas
-- **PostgreSQL** med Prisma schema
-- **Automatiska migrations**
-- **Relationell datamodell** för projekt, användare och rapporter
-
-## 📋 Installation
-
-### Förutsättningar
-- Node.js 18+ 
-- PostgreSQL 14+
-- npm eller yarn
-
-### 1. Klona repository
 ```bash
-git clone https://github.com/yourusername/vilches-property-management.git
-cd vilches-property-management
+git clone https://github.com/NeoNemesis/vilchesapp.git
+cd vilchesapp
+docker compose up
 ```
 
-### 2. Backend setup
+Open `http://localhost:3000` — the Setup Wizard will guide you through configuration.
+
+### Option 2: Manual Installation
+
+**Requirements:** Node.js 18+, PostgreSQL 14+
+
 ```bash
+# Clone
+git clone https://github.com/NeoNemesis/vilchesapp.git
+cd vilchesapp
+
+# Setup backend
 cd backend
+cp .env.example .env    # Edit with your database credentials
 npm install
+npx prisma migrate deploy
+npx prisma generate
+
+# Setup frontend
+cd ../frontend
 cp .env.example .env
-# Redigera .env med dina databasuppgifter
-npm run prisma:generate
-npm run prisma:migrate
-npm run dev
-```
-
-### 3. Frontend setup
-```bash
-cd frontend
 npm install
+
+# Start both
+cd ..
 npm run dev
 ```
 
-### 4. Databas-konfiguration
-Skapa en `.env` fil i backend-mappen:
-```env
-DATABASE_URL="postgresql://username:password@localhost:5432/vilches_property_management"
-JWT_SECRET="your-super-secret-jwt-key"
-SMTP_HOST="smtp.gmail.com"
-SMTP_USER="your-email@gmail.com"
-SMTP_PASS="your-app-password"
-```
+Open `http://localhost:3000` — the Setup Wizard will guide you.
 
-## 🔧 Konfiguration
+## Setup Wizard
 
-### Email Setup
-1. **Gmail App Password** för SMTP
-2. **IMAP-åtkomst** för info@vilchesab.se
-3. **Email-templates** för notifikationer
+On first run, VilchesApp shows a setup wizard where you configure:
 
-### Databas
-1. **PostgreSQL-instans** (lokal eller moln)
-2. **Prisma migrations** för schema
-3. **Seed-data** för utveckling
+1. **Company info** — Name, org number
+2. **Industry** — Pre-configured templates for:
+   - Construction & Renovation (Bygg)
+   - Cleaning & Facility Management (Stad)
+   - Electrical & Plumbing (El & VVS)
+   - Consulting (Konsult)
+   - Custom
+3. **Admin account** — Your first admin user
+4. **Features** — Enable/disable modules you need
 
-### Filuppladdning
-1. **Uploads-mapp** med rätt permissions
-2. **Max filstorlek** konfiguration
-3. **Bildformat** validering
+## Tech Stack
 
-## 📱 Användning
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Tailwind CSS, Vite |
+| Backend | Node.js, Express, TypeScript |
+| Database | PostgreSQL with Prisma ORM |
+| Auth | JWT with refresh tokens, bcrypt |
+| PDF | PDFKit |
+| Email | Nodemailer (SMTP/IMAP) |
+| Maps | Leaflet + React Leaflet |
+| Charts | Recharts |
+| State | TanStack React Query |
+| PWA | Vite PWA Plugin |
 
-### Admin-flöde
-1. **Skapa projekt** manuellt eller via email
-2. **Tilldela till entreprenör** från listan
-3. **Övervaka progress** via dashboard
-4. **Granska rapporter** och godkänn
-5. **Skicka till kund** med professionell formatering
-
-### Entreprenör-flöde
-1. **Logga in** med tilldelade credentials
-2. **Se tilldelade projekt** på dashboard
-3. **Acceptera/avböj** projekt
-4. **Skicka progress-rapporter** med bilder
-5. **Uppdatera projektstatus** kontinuerligt
-
-## 🏗️ Projektstruktur
+## Project Structure
 
 ```
-property-management-app/
-├── backend/                 # Node.js/Express backend
+vilchesapp/
+├── backend/
 │   ├── src/
-│   │   ├── routes/         # API endpoints
-│   │   ├── services/       # Business logic
-│   │   ├── middleware/     # Auth & validation
-│   │   └── index.ts        # Server startup
-│   ├── prisma/             # Database schema & migrations
-│   └── uploads/            # File storage
-├── frontend/                # React frontend
+│   │   ├── config/          # Pricing configuration
+│   │   ├── middleware/       # Auth, security, validation
+│   │   ├── routes/           # API endpoints
+│   │   ├── services/         # Business logic, email, PDF
+│   │   ├── setup/            # Setup wizard & templates
+│   │   └── utils/            # Calculators, helpers
+│   └── prisma/
+│       └── schema.prisma     # Database schema
+├── frontend/
 │   ├── src/
-│   │   ├── pages/          # Page components
-│   │   ├── components/     # Reusable components
-│   │   ├── contexts/       # React contexts
-│   │   ├── services/       # API services
-│   │   └── types/          # TypeScript types
-│   └── public/             # Static assets
-└── docs/                    # Documentation
+│   │   ├── pages/            # Admin, Contractor, Employee views
+│   │   ├── components/       # Reusable UI components
+│   │   ├── contexts/         # Auth, AppSettings, Theme
+│   │   └── services/         # API client
+├── docker-compose.yml        # One-command setup
+├── Dockerfile                # Backend + build
+└── nginx.conf                # Frontend server
 ```
 
-## 🔐 Säkerhet
+## User Roles
 
-- **JWT-tokens** för autentisering
-- **Role-based access control** (ADMIN/CONTRACTOR)
-- **Input validation** med Zod schemas
-- **SQL injection protection** via Prisma
-- **File upload validation** och scanning
-- **CORS-konfiguration** för säker kommunikation
+| Role | Access |
+|------|--------|
+| **Admin** | Full access: projects, quotes, employees, reports, settings |
+| **Contractor** | Assigned projects, submit reports, calendar, map |
+| **Employee** | Time reports, assigned projects, calendar |
 
-## 📊 API Endpoints
+## API Endpoints
 
-### Projekt
-- `GET /api/projects` - Lista alla projekt
-- `POST /api/projects` - Skapa nytt projekt
-- `GET /api/projects/:id` - Projektdetaljer
-- `PUT /api/projects/:id/assign` - Tilldela projekt
-- `PUT /api/projects/:id/accept` - Acceptera projekt
-- `PUT /api/projects/:id/reject` - Avvisa projekt
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/auth/login` | Login |
+| `GET /api/projects` | List projects |
+| `POST /api/quotes` | Create quote |
+| `POST /api/quotes/:id/pdf` | Generate PDF |
+| `POST /api/quotes/:id/send` | Email quote |
+| `GET /api/time-reports` | Time reports |
+| `GET /api/app-settings` | App configuration |
+| `GET /api/setup/status` | Check if setup needed |
+| `GET /health` | Health check |
 
-### Entreprenörer
-- `GET /api/contractors` - Lista entreprenörer
-- `POST /api/contractors` - Skapa entreprenör
-- `POST /api/contractors/:id/send-welcome` - Skicka välkomstmail
+See `GET /api` for the full endpoint list.
 
-### Dashboard
-- `GET /api/projects/dashboard-stats` - Dashboard-statistik
-- `GET /api/projects/analytics` - Analytics-data
-- `GET /api/projects/recent` - Senaste projekt
+## Configuration
 
-## 🚀 Deployment
+All configuration is done via environment variables. See `backend/.env.example` for the full list.
 
-### Produktion
-1. **Environment variables** för produktion
-2. **SSL-certifikat** för HTTPS
-3. **Database backup** strategi
-4. **Monitoring** och logging
-5. **CI/CD pipeline** med GitHub Actions
+### Required
+- `DATABASE_URL` — PostgreSQL connection string
+- `JWT_SECRET` — Secret key for JWT tokens
 
-### Docker (kommande)
-```bash
-docker-compose up -d
-```
+### Optional (enable via Setup Wizard)
+- SMTP settings for email
+- Google Analytics credentials
+- 46elks SMS API keys
+- Telegram bot token
+- n8n automation URL
 
-## 🤝 Bidrag
+## License
 
-1. **Fork** repository
-2. **Skapa feature branch** (`git checkout -b feature/AmazingFeature`)
-3. **Commit** ändringar (`git commit -m 'Add some AmazingFeature'`)
-4. **Push** till branch (`git push origin feature/AmazingFeature`)
-5. **Öppna Pull Request**
+MIT License — see [LICENSE](LICENSE) for details.
 
-## 📄 Licens
+## Contributing
 
-Detta projekt är licensierat under MIT License - se [LICENSE](LICENSE) filen för detaljer.
-
-## 📞 Support
-
-- **Email:** info@vilchesab.se
-- **Issues:** [GitHub Issues](https://github.com/yourusername/vilches-property-management/issues)
-- **Documentation:** [Wiki](https://github.com/yourusername/vilches-property-management/wiki)
-
-## 🙏 Tack
-
-Tack till alla som bidragit till detta projekt och till Vilches Entreprenad AB för möjligheten att bygga detta system.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
-**Byggt med ❤️ för svenska entreprenörer**
+**VilchesApp** — Created by [Victor Vilches](https://github.com/NeoNemesis)
