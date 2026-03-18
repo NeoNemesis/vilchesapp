@@ -17,7 +17,7 @@ const transporter = nodemailer.createTransport({
   secure: process.env.SMTP_SECURE === 'true',
   family: 4, // Tvinga IPv4 - Raspberry Pi har problem med IPv6
   auth: {
-    user: process.env.SMTP_USER || '${process.env.COMPANY_EMAIL || process.env.SMTP_USER}',
+    user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || process.env.SMTP_PASSWORD
   }
 });
@@ -39,7 +39,7 @@ async function sendQuoteEmail({ to, quote, pdfPath, customMessage }) {
     }
 
     // Skapa publik länk till offerten
-    const frontendUrl = process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
     const quoteLink = `${frontendUrl}/quote/${quote.id}`;
 
     // Ersätt platshållare
@@ -74,7 +74,7 @@ async function sendQuoteEmail({ to, quote, pdfPath, customMessage }) {
 
     // Skicka email
     const info = await transporter.sendMail({
-      from: '"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>',
+      from: `"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>`,
       to: to,
       subject: `Offert #${quote.quoteNumber} - ${quote.projectType}`,
       html: htmlTemplate,
@@ -103,7 +103,7 @@ async function sendQuoteReminder({ to, quote }) {
       .replace(/\{\{totalCost\}\}/g, quote.totalAfterRot.toLocaleString('sv-SE'));
 
     const info = await transporter.sendMail({
-      from: '"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>',
+      from: `"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>`,
       to: to,
       subject: `Påminnelse: Offert #${quote.quoteNumber}`,
       html: filledTemplate
@@ -130,7 +130,7 @@ async function sendQuoteAcceptedEmail({ to, quote, project }) {
       .replace(/\{\{projectNumber\}\}/g, project.projectNumber);
 
     const info = await transporter.sendMail({
-      from: '"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>',
+      from: `"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>`,
       to: to,
       subject: `Tack! Ditt projekt #${project.projectNumber} är bekräftat`,
       html: filledTemplate
@@ -369,7 +369,7 @@ async function sendQuoteAcceptedNotification({ quote, adminEmail }) {
     `;
 
     const info = await transporter.sendMail({
-      from: '"${process.env.COMPANY_NAME || 'VilchesApp'} System" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>',
+      from: `"${process.env.COMPANY_NAME || 'VilchesApp'} System" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>`,
       to: adminEmail,
       subject: `✅ Offert ${quote.quoteNumber} accepterad av ${quote.clientName}`,
       html: htmlTemplate
@@ -437,7 +437,7 @@ async function sendQuoteRejectedNotification({ quote, adminEmail, reason }) {
     `;
 
     const info = await transporter.sendMail({
-      from: '"${process.env.COMPANY_NAME || 'VilchesApp'} System" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>',
+      from: `"${process.env.COMPANY_NAME || 'VilchesApp'} System" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER}>`,
       to: adminEmail,
       subject: `❌ Offert ${quote.quoteNumber} avvisad av ${quote.clientName}`,
       html: htmlTemplate

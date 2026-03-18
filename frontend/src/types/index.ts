@@ -2,7 +2,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'CONTRACTOR' | 'CLIENT' | 'EMPLOYEE';
+  role: 'ADMIN' | 'CONTRACTOR' | 'CLIENT' | 'EMPLOYEE' | 'ACCOUNTANT';
   company?: string;
   phone?: string;
   isActive?: boolean;
@@ -231,6 +231,15 @@ export interface Quote {
   totalMaterialCost: number;
   totalCost: number;
 
+  // ROT & Moms
+  applyRotDeduction?: boolean;
+  rotDeduction?: number;
+  totalAfterRot?: number;
+  includeVat?: boolean;
+  vatRate?: number;
+  vatAmount?: number;
+  totalWithVat?: number;
+
   // AI matchning
   similarityScore?: number;
   confidenceLevel?: number;
@@ -434,6 +443,7 @@ export interface Employee {
   email: string;
   phone?: string;
   company?: string;
+  role?: string;
   isActive: boolean;
   createdAt: string;
   hourlyRate?: number | null;
@@ -452,6 +462,64 @@ export interface EmployeeDetail extends Employee {
     totalApprovedHours: number;
     pendingCount: number;
   };
+}
+
+// === CALENDAR SYSTEM TYPES ===
+
+export type CalendarEventType = 'MEETING' | 'SITE_VISIT' | 'DEADLINE' | 'TASK' | 'REMINDER' | 'BLOCKED' | 'OTHER';
+export type CalendarEventStatus = 'CONFIRMED' | 'TENTATIVE' | 'CANCELLED';
+export type CalendarRecurrence = 'NONE' | 'DAILY' | 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | 'YEARLY';
+
+export interface CalendarParticipant {
+  id: string;
+  eventId: string;
+  userId: string;
+  accepted: boolean;
+  notified: boolean;
+  user: { id: string; name: string; email: string };
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description?: string;
+  location?: string;
+  startTime: string;
+  endTime: string;
+  allDay: boolean;
+  type: CalendarEventType;
+  status: CalendarEventStatus;
+  color?: string;
+  recurrence: CalendarRecurrence;
+  recurrenceEndDate?: string;
+  createdById: string;
+  createdBy?: { id: string; name: string; email: string };
+  projectId?: string;
+  project?: { id: string; title: string; projectNumber: string };
+  participants: CalendarParticipant[];
+  externalId?: string;
+  icalUid?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCalendarEventRequest {
+  title: string;
+  description?: string;
+  location?: string;
+  startTime: string;
+  endTime: string;
+  allDay?: boolean;
+  type?: CalendarEventType;
+  status?: CalendarEventStatus;
+  color?: string;
+  recurrence?: CalendarRecurrence;
+  recurrenceEndDate?: string;
+  projectId?: string;
+  participantIds?: string[];
+  notes?: string;
+  externalId?: string;
 }
 
 export interface QuoteFilters {

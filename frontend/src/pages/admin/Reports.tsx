@@ -137,12 +137,12 @@ const AdminReports: React.FC = () => {
     <div>
       {/* Header */}
       <div className="bg-white shadow rounded-lg mb-6">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center space-x-3">
               <DocumentTextIcon className="h-8 w-8 text-blue-600" />
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Rapporter</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Rapporter</h1>
                 <p className="text-gray-600">Granska inkomna rapporter från underleverantörer</p>
               </div>
             </div>
@@ -167,57 +167,57 @@ const AdminReports: React.FC = () => {
       </div>
 
       {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-6 rounded-lg shadow">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-6">
+        <div className="bg-white p-2.5 sm:p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <ClockIcon className="h-8 w-8 text-yellow-500" />
+              <ClockIcon className="h-5 w-5 sm:h-8 sm:w-8 text-yellow-500" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Väntar granskning</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="ml-2 sm:ml-4">
+              <p className="text-xs sm:text-sm font-medium text-gray-500">Väntar granskning</p>
+              <p className="text-base sm:text-2xl font-semibold text-gray-900">
                 {allReports.filter(r => r.status === 'SUBMITTED').length}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white p-2.5 sm:p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <CheckCircleIcon className="h-8 w-8 text-green-500" />
+              <CheckCircleIcon className="h-5 w-5 sm:h-8 sm:w-8 text-green-500" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Godkända</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="ml-2 sm:ml-4">
+              <p className="text-xs sm:text-sm font-medium text-gray-500">Godkända</p>
+              <p className="text-base sm:text-2xl font-semibold text-gray-900">
                 {allReports.filter(r => r.status === 'APPROVED').length}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white p-2.5 sm:p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <DocumentTextIcon className="h-8 w-8 text-gray-500" />
+              <DocumentTextIcon className="h-5 w-5 sm:h-8 sm:w-8 text-gray-500" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Totalt rapporter</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="ml-2 sm:ml-4">
+              <p className="text-xs sm:text-sm font-medium text-gray-500">Totalt rapporter</p>
+              <p className="text-base sm:text-2xl font-semibold text-gray-900">
                 {allReports.length}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
+        <div className="bg-white p-2.5 sm:p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <ClockIcon className="h-8 w-8 text-blue-500" />
+              <ClockIcon className="h-5 w-5 sm:h-8 sm:w-8 text-blue-500" />
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Genomsnittlig tid</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="ml-2 sm:ml-4">
+              <p className="text-xs sm:text-sm font-medium text-gray-500">Genomsnittlig tid</p>
+              <p className="text-base sm:text-2xl font-semibold text-gray-900">
                 {allReports.length > 0
                   ? Math.round(allReports.reduce((sum, r) => sum + r.hoursWorked, 0) / allReports.length * 10) / 10
                   : 0
@@ -245,7 +245,7 @@ const AdminReports: React.FC = () => {
           <ul className="divide-y divide-gray-200">
             {filteredReports.map((report: Report) => (
               <li key={report.id} className="hover:bg-gray-50">
-                <div className="px-6 py-4">
+                <div className="px-4 sm:px-6 py-3 sm:py-4">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start space-x-4 min-w-0 flex-1">
                       <div className="flex-shrink-0 pt-1">
@@ -256,7 +256,7 @@ const AdminReports: React.FC = () => {
                         <div className="flex items-center space-x-3">
                           <Link
                             to={`/admin/reports/${report.id}`}
-                            className="text-lg font-medium text-blue-600 hover:text-blue-800 truncate"
+                            className="text-sm sm:text-lg font-medium text-blue-600 hover:text-blue-800 truncate"
                           >
                             {report.title}
                           </Link>
@@ -277,7 +277,7 @@ const AdminReports: React.FC = () => {
                           </div>
 
                           <div className="flex items-center text-sm text-gray-500 space-x-4">
-                            <div className="flex items-center space-x-1">
+                            <div className="hidden sm:flex items-center space-x-1">
                               <MapPinIcon className="h-4 w-4" />
                               <span className="truncate">{report.project.address}</span>
                             </div>
@@ -289,7 +289,7 @@ const AdminReports: React.FC = () => {
                             )}
                           </div>
 
-                          <div className="flex items-center text-sm text-gray-500 space-x-4">
+                          <div className="flex flex-wrap items-center text-sm text-gray-500 gap-x-4 gap-y-1">
                             <div className="flex items-center space-x-1">
                               <ClockIcon className="h-4 w-4" />
                               <span>{report.hoursWorked}h arbetad tid</span>
@@ -321,7 +321,7 @@ const AdminReports: React.FC = () => {
 
                     <div className="flex flex-col items-end space-y-2 ml-4">
                       <div className="text-right">
-                        <div className="text-lg font-semibold text-gray-900">
+                        <div className="text-sm sm:text-lg font-semibold text-gray-900">
                           {report.progressPercent}%
                         </div>
                         <div className="text-sm text-gray-500">Färdigställt</div>

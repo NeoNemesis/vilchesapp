@@ -815,7 +815,7 @@ const AdminProjectDetail: React.FC = () => {
                             if (confirm('Ta bort ' + m.user.name + '?')) {
                               fetch('/api/projects/' + project.id + '/team/' + m.user.id, {
                                 method: 'DELETE',
-                                headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') }
+                                credentials: 'include'
                               }).then(() => {
                                 toast.success('Borttagen!');
                                 queryClient.invalidateQueries({ queryKey: ['project', project.id] });

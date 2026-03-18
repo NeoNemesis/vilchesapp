@@ -55,6 +55,7 @@ router.get('/', async (req: Request, res: Response) => {
         telegram: settings.enableTelegram,
         analytics: settings.enableAnalytics,
         automations: settings.enableAutomations,
+        fortnox: settings.enableFortnox,
       },
 
       // Custom categories for this installation
@@ -96,6 +97,7 @@ router.put('/', authenticateToken, requireAdmin, async (req: Request, res: Respo
       enableTelegram,
       enableAnalytics,
       enableAutomations,
+      enableFortnox,
 
       // SMTP
       smtpHost,
@@ -130,6 +132,7 @@ router.put('/', authenticateToken, requireAdmin, async (req: Request, res: Respo
         ...(enableTelegram !== undefined && { enableTelegram }),
         ...(enableAnalytics !== undefined && { enableAnalytics }),
         ...(enableAutomations !== undefined && { enableAutomations }),
+        ...(enableFortnox !== undefined && { enableFortnox }),
         ...(smtpHost !== undefined && { smtpHost }),
         ...(smtpPort !== undefined && { smtpPort }),
         ...(smtpSecure !== undefined && { smtpSecure }),

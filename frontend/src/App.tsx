@@ -5,7 +5,6 @@ import { Toaster } from 'react-hot-toast';
 
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
-import { AppSettingsProvider, useAppSettings } from './contexts/AppSettingsContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import ErrorBoundary from './components/common/ErrorBoundary';
 
@@ -13,17 +12,16 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 import AdminLayout from './components/layout/AdminLayout';
 import ContractorLayout from './components/layout/ContractorLayout';
 import EmployeeLayout from './components/layout/EmployeeLayout';
+import AccountantLayout from './components/layout/AccountantLayout';
 
 // Auth Pages - loaded eagerly (first thing users see)
 import Login from './pages/VilchesLogin';
-
-// Setup Wizard (shown on first run)
-const SetupWizard = lazy(() => import('./pages/setup/SetupWizard'));
 
 // Lazy-loaded pages
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const PublicQuote = lazy(() => import('./pages/PublicQuote'));
+const PublicBillingInfo = lazy(() => import('./pages/PublicBillingInfo'));
 
 // Admin Pages (lazy)
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'));
@@ -45,6 +43,11 @@ const AdminEmployees = lazy(() => import('./pages/admin/Employees'));
 const AdminEmployeeDetail = lazy(() => import('./pages/admin/EmployeeDetail'));
 const AdminTimeReports = lazy(() => import('./pages/admin/TimeReports'));
 const AdminTimeReportDetail = lazy(() => import('./pages/admin/TimeReportDetail'));
+const AdminSalary = lazy(() => import('./pages/admin/Salary'));
+const AdminCustomers = lazy(() => import('./pages/admin/Customers'));
+const AdminCustomerDetail = lazy(() => import('./pages/admin/CustomerDetail'));
+const AdminInvoices = lazy(() => import('./pages/admin/Invoices'));
+const AdminInvoiceNew = lazy(() => import('./pages/admin/InvoiceNew'));
 
 // Contractor Pages (lazy)
 const ContractorDashboard = lazy(() => import('./pages/contractor/Dashboard'));
@@ -58,7 +61,16 @@ const Documents = lazy(() => import('./pages/contractor/Documents'));
 // Employee Pages (lazy)
 const EmployeeDashboard = lazy(() => import('./pages/employee/Dashboard'));
 const EmployeeTimeReport = lazy(() => import('./pages/employee/TimeReport'));
+const EmployeeSalary = lazy(() => import('./pages/employee/Salary'));
 const EmployeeSettings = lazy(() => import('./pages/employee/Settings'));
+
+// Accountant Pages (lazy)
+const AccountantDashboard = lazy(() => import('./pages/accountant/Dashboard'));
+const AccountantTimeReports = lazy(() => import('./pages/accountant/TimeReports'));
+const AccountantEmployees = lazy(() => import('./pages/accountant/Employees'));
+const AccountantSalary = lazy(() => import('./pages/accountant/Salary'));
+const AccountantExport = lazy(() => import('./pages/accountant/Export'));
+const AccountantSettings = lazy(() => import('./pages/accountant/Settings'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -75,40 +87,21 @@ const PageLoader = () => (
   </div>
 );
 
-/**
- * SetupGuard — redirects to /setup if first-time installation
- */
-const SetupGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { needsSetup } = useAppSettings();
-
-  if (needsSetup) {
-    return (
-      <Routes>
-        <Route path="/setup" element={<SetupWizard />} />
-        <Route path="*" element={<Navigate to="/setup" replace />} />
-      </Routes>
-    );
-  }
-
-  return <>{children}</>;
-};
-
 const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <AppSettingsProvider>
         <AuthProvider>
           <BrowserRouter>
             <Suspense fallback={<PageLoader />}>
-              <SetupGuard>
               <Routes>
                 {/* Public Routes */}
                 <Route path="/login" element={<Login />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/quote/:id" element={<PublicQuote />} />
+                <Route path="/billing-info/:token" element={<PublicBillingInfo />} />
 
                 {/* Admin Routes */}
                 <Route
@@ -136,6 +129,11 @@ const App: React.FC = () => {
                   <Route path="employees/:id" element={<AdminEmployeeDetail />} />
                   <Route path="time-reports" element={<AdminTimeReports />} />
                   <Route path="time-reports/:id" element={<AdminTimeReportDetail />} />
+                  <Route path="salary" element={<AdminSalary />} />
+                  <Route path="customers" element={<AdminCustomers />} />
+                  <Route path="customers/:id" element={<AdminCustomerDetail />} />
+                  <Route path="invoices" element={<AdminInvoices />} />
+                  <Route path="invoices/new" element={<AdminInvoiceNew />} />
                   <Route path="activity-logs" element={<AdminActivityLogs />} />
                   <Route path="settings" element={<AdminSettings />} />
                 </Route>
@@ -170,6 +168,7 @@ const App: React.FC = () => {
                 >
                   <Route index element={<EmployeeDashboard />} />
                   <Route path="time-report" element={<EmployeeTimeReport />} />
+                  <Route path="salary" element={<EmployeeSalary />} />
                   <Route path="projects" element={<ContractorProjects />} />
                   <Route path="projects/:id" element={<ContractorProjectDetail />} />
                   <Route path="projects/:id/report" element={<ReportForm />} />
@@ -179,10 +178,26 @@ const App: React.FC = () => {
                   <Route path="settings" element={<EmployeeSettings />} />
                 </Route>
 
+                {/* Accountant Routes */}
+                <Route
+                  path="/accountant"
+                  element={
+                    <ProtectedRoute allowedRoles={['ACCOUNTANT']}>
+                      <AccountantLayout />
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route index element={<AccountantDashboard />} />
+                  <Route path="time-reports" element={<AccountantTimeReports />} />
+                  <Route path="employees" element={<AccountantEmployees />} />
+                  <Route path="salary" element={<AccountantSalary />} />
+                  <Route path="export" element={<AccountantExport />} />
+                  <Route path="settings" element={<AccountantSettings />} />
+                </Route>
+
                 {/* Redirect root to appropriate dashboard */}
                 <Route path="/" element={<Navigate to="/login" replace />} />
               </Routes>
-              </SetupGuard>
             </Suspense>
           </BrowserRouter>
           <Toaster
@@ -196,7 +211,6 @@ const App: React.FC = () => {
             }}
           />
         </AuthProvider>
-        </AppSettingsProvider>
       </QueryClientProvider>
       </ThemeProvider>
     </ErrorBoundary>

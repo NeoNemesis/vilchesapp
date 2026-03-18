@@ -65,8 +65,8 @@ export async function generateTimeReportPdf(report: TimeReportData): Promise<Buf
 
       // Header
       doc.font(fontBold).fontSize(18).text('TIDSRAPPORT', 40, 40);
-      doc.font(font).fontSize(10).text('${process.env.COMPANY_NAME || 'VilchesApp'}', 40, 62);
-      doc.text('Org.nr: ${process.env.ORG_NUMBER || ''}', 40, 75);
+      doc.font(font).fontSize(10).text(process.env.COMPANY_NAME || 'VilchesApp', 40, 62);
+      doc.text(`Org.nr: ${process.env.ORG_NUMBER || ''}`, 40, 75);
 
       // Report info (right side)
       const rightCol = doc.page.width - 240;

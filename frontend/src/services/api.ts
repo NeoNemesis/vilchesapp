@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 
 class ApiService {
   private client: AxiosInstance;
+  private refreshPromise: Promise<any> | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -12,69 +13,51 @@ class ApiService {
       withCredentials: true, // Viktigt för att skicka cookies
     });
 
-    this.client.interceptors.request.use(
-      (config) => {
-        const token = localStorage.getItem('token');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
-
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
-        
-        // Om vi får 401 eller 403 och inte redan försökt refresh
+
+        // On 401/403, attempt a token refresh via cookies
         if ((error.response?.status === 401 || error.response?.status === 403) && !originalRequest._retry) {
           originalRequest._retry = true;
-          
+
           try {
-            console.log('🔄 Försöker förnya token...');
-            // Försök förnya token med refresh endpoint
-            const refreshResponse = await axios.post(
-              `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/auth/refresh`,
-              {},
-              { withCredentials: true } // Viktigt för cookies
-            );
-            console.log('✅ Token förnyad framgångsrikt');
-            
-            if (refreshResponse.data.success && refreshResponse.data.token) {
-              const newToken = refreshResponse.data.token;
-              
-              // Uppdatera localStorage och headers
-              localStorage.setItem('token', newToken);
-              localStorage.setItem('user', JSON.stringify(refreshResponse.data.user));
-              this.setAuthToken(newToken);
-              
-              // Försök original request igen med ny token
-              originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            // Förhindra parallella refresh-anrop — återanvänd pågående refresh
+            if (!this.refreshPromise) {
+              this.refreshPromise = axios.post(
+                `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/auth/refresh`,
+                {},
+                { withCredentials: true }
+              ).finally(() => {
+                this.refreshPromise = null;
+              });
+            }
+
+            const refreshResponse = await this.refreshPromise;
+
+            if (refreshResponse.data.success) {
+              // Update cached user info
+              if (refreshResponse.data.user) {
+                localStorage.setItem('user', JSON.stringify(refreshResponse.data.user));
+              }
+              // Retry the original request (cookie is already updated by the server)
               return this.client(originalRequest);
             }
           } catch (refreshError) {
-            console.log('❌ Token refresh failed:', refreshError);
+            this.refreshPromise = null;
           }
-          
-          // Om refresh misslyckades, logga ut användaren
-          localStorage.removeItem('token');
+
+          // Refresh failed - clear local state and redirect to login (only if not already there)
           localStorage.removeItem('user');
-          window.location.href = '/login';
+          if (!window.location.pathname.startsWith('/login')) {
+            window.location.href = '/login';
+          }
         }
-        
+
         return Promise.reject(error);
       }
     );
-  }
-
-  setAuthToken(token: string) {
-    this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-  }
-
-  clearAuthToken() {
-    delete this.client.defaults.headers.common['Authorization'];
   }
 
   // Auth
@@ -83,10 +66,24 @@ class ApiService {
     return response.data;
   };
 
-  // Projects - Contractor
+  getMe = async () => {
+    const response = await this.client.get('/auth/me');
+    return response.data;
+  };
+
+  logout = async () => {
+    const response = await this.client.post('/auth/logout');
+    return response.data;
+  };
+
+  // Projects - Contractor / Employee
   getMyProjects = async () => {
     const response = await this.client.get('/projects/my');
-    return response.data;
+    const data = response.data;
+    // Normalize: backend may return array or { success, projects }
+    if (Array.isArray(data)) return data;
+    if (data?.projects && Array.isArray(data.projects)) return data.projects;
+    return [];
   };
 
   getMyCompletedProjects = async () => {
@@ -109,7 +106,7 @@ class ApiService {
     const reportData = JSON.parse(data.get('reportData') as string || '{}');
     reportData.isDraft = isDraft;
     data.set('reportData', JSON.stringify(reportData));
-    
+
     const response = await this.client.post(`/projects/${projectId}/report`, data, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -127,7 +124,7 @@ class ApiService {
     const reportData = JSON.parse(data.get('reportData') as string || '{}');
     reportData.isDraft = isDraft;
     data.set('reportData', JSON.stringify(reportData));
-    
+
     const response = await this.client.put(`/projects/${projectId}/reports/${reportId}`, data, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
@@ -157,19 +154,19 @@ class ApiService {
     // Om det finns bilder, använd FormData
     if (data.images && data.images.length > 0) {
       const formData = new FormData();
-      
+
       // Lägg till alla fält utom images
       Object.entries(data).forEach(([key, value]) => {
         if (key !== 'images' && value !== undefined && value !== '') {
           formData.append(key, value.toString());
         }
       });
-      
+
       // Lägg till bilder
       data.images.forEach(file => {
         formData.append('images', file);
       });
-      
+
       const response = await this.client.post('/projects', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -675,6 +672,16 @@ class ApiService {
     return response.data;
   };
 
+  createAdminTimeReport = async (data: { userId: string; weekNumber: number; year: number; weekStartDate: string; entries: any[] }) => {
+    const response = await this.client.post('/time-reports/admin/create', data);
+    return response.data;
+  };
+
+  deleteAdminTimeReport = async (id: string) => {
+    const response = await this.client.delete(`/time-reports/admin/${id}`);
+    return response.data;
+  };
+
   getTimeReportSummary = async () => {
     const response = await this.client.get('/time-reports/admin/summary');
     return response.data;
@@ -719,6 +726,24 @@ class ApiService {
     return response.data;
   };
 
+  // === PERIOD LOCKS ===
+
+  getLockedPeriods = async (year?: number) => {
+    const params = year ? `?year=${year}` : '';
+    const response = await this.client.get(`/time-reports/locked-periods${params}`);
+    return response.data;
+  };
+
+  lockPeriod = async (data: { year: number; month: number; note?: string }) => {
+    const response = await this.client.post('/time-reports/admin/lock-period', data);
+    return response.data;
+  };
+
+  unlockPeriod = async (id: string) => {
+    const response = await this.client.delete(`/time-reports/admin/lock-period/${id}`);
+    return response.data;
+  };
+
   // === ACCOUNTANT SETTINGS ===
 
   getAccountantSettings = async () => {
@@ -738,6 +763,202 @@ class ApiService {
 
   sendAccountantTestEmail = async () => {
     const response = await this.client.post('/settings/accountant/test-email');
+    return response.data;
+  };
+
+  // === FORTNOX SETTINGS ===
+
+  getFortnoxSettings = async () => {
+    const response = await this.client.get('/settings/fortnox');
+    return response.data;
+  };
+
+  saveFortnoxCredentials = async (data: { clientId: string; clientSecret: string }) => {
+    const response = await this.client.put('/settings/fortnox/credentials', data);
+    return response.data;
+  };
+
+  getFortnoxAuthUrl = async () => {
+    const response = await this.client.get('/settings/fortnox/auth-url');
+    return response.data;
+  };
+
+  disconnectFortnox = async () => {
+    const response = await this.client.post('/settings/fortnox/disconnect');
+    return response.data;
+  };
+
+  testFortnoxConnection = async () => {
+    const response = await this.client.post('/settings/fortnox/test');
+    return response.data;
+  };
+
+  syncFortnoxEmployees = async () => {
+    const response = await this.client.post('/settings/fortnox/sync-employees');
+    return response.data;
+  };
+
+  getFortnoxSalaryLogs = async (limit: number = 20) => {
+    const response = await this.client.get(`/settings/fortnox/salary-logs?limit=${limit}`);
+    return response.data;
+  };
+
+  // === INVOICES ===
+
+  requestBillingInfo = async (quoteId: string) => {
+    const response = await this.client.post(`/invoices/request-billing-info/${quoteId}`);
+    return response.data;
+  };
+
+  createInvoiceFromQuote = async (quoteId: string) => {
+    const response = await this.client.post(`/invoices/from-quote/${quoteId}`);
+    return response.data;
+  };
+
+  sendInvoice = async (logId: string) => {
+    const response = await this.client.post(`/invoices/${logId}/send`);
+    return response.data;
+  };
+
+  getInvoiceLogs = async (limit: number = 20) => {
+    const response = await this.client.get(`/invoices/logs?limit=${limit}`);
+    return response.data;
+  };
+
+  // === CALENDAR ===
+
+  getCalendarEvents = async (params?: { start?: string; end?: string; userId?: string; type?: string; projectId?: string }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.start) searchParams.set('start', params.start);
+    if (params?.end) searchParams.set('end', params.end);
+    if (params?.userId) searchParams.set('userId', params.userId);
+    if (params?.type) searchParams.set('type', params.type);
+    if (params?.projectId) searchParams.set('projectId', params.projectId);
+    const query = searchParams.toString();
+    const response = await this.client.get(`/calendar/events${query ? `?${query}` : ''}`);
+    return response.data;
+  };
+
+  getCalendarEvent = async (id: string) => {
+    const response = await this.client.get(`/calendar/events/${id}`);
+    return response.data;
+  };
+
+  createCalendarEvent = async (data: any) => {
+    const response = await this.client.post('/calendar/events', data);
+    return response.data;
+  };
+
+  updateCalendarEvent = async (id: string, data: any) => {
+    const response = await this.client.put(`/calendar/events/${id}`, data);
+    return response.data;
+  };
+
+  deleteCalendarEvent = async (id: string) => {
+    const response = await this.client.delete(`/calendar/events/${id}`);
+    return response.data;
+  };
+
+  respondToCalendarEvent = async (id: string, accepted: boolean) => {
+    const response = await this.client.post(`/calendar/events/${id}/respond`, { accepted });
+    return response.data;
+  };
+
+  getCalendarUsers = async () => {
+    const response = await this.client.get('/calendar/users');
+    return response.data;
+  };
+
+  getCalendarFeedUrl = async () => {
+    const response = await this.client.get('/calendar/feed-url');
+    return response.data;
+  };
+
+  // === KUNDER (Kundregister) ===
+
+  getCustomers = async (filters?: { search?: string; active?: boolean }) => {
+    const params = new URLSearchParams();
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.active !== undefined) params.append('active', String(filters.active));
+    const response = await this.client.get(`/customers?${params.toString()}`);
+    return response.data;
+  };
+
+  getCustomer = async (id: string) => {
+    const response = await this.client.get(`/customers/${id}`);
+    return response.data;
+  };
+
+  createCustomer = async (data: any) => {
+    const response = await this.client.post('/customers', data);
+    return response.data;
+  };
+
+  updateCustomer = async (id: string, data: any) => {
+    const response = await this.client.put(`/customers/${id}`, data);
+    return response.data;
+  };
+
+  deleteCustomer = async (id: string) => {
+    const response = await this.client.delete(`/customers/${id}`);
+    return response.data;
+  };
+
+  getCustomerHistory = async (id: string) => {
+    const response = await this.client.get(`/customers/${id}/history`);
+    return response.data;
+  };
+
+  // === FAKTUROR (Fristående) ===
+
+  getStandaloneInvoices = async (filters?: { status?: string; customerId?: string; search?: string; page?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== '') params.append(key, String(value));
+      });
+    }
+    const response = await this.client.get(`/standalone-invoices?${params.toString()}`);
+    return response.data;
+  };
+
+  getStandaloneInvoice = async (id: string) => {
+    const response = await this.client.get(`/standalone-invoices/${id}`);
+    return response.data;
+  };
+
+  getNextInvoiceNumber = async () => {
+    const response = await this.client.get('/standalone-invoices/next-number');
+    return response.data;
+  };
+
+  createStandaloneInvoice = async (data: any) => {
+    const response = await this.client.post('/standalone-invoices', data);
+    return response.data;
+  };
+
+  updateStandaloneInvoice = async (id: string, data: any) => {
+    const response = await this.client.put(`/standalone-invoices/${id}`, data);
+    return response.data;
+  };
+
+  deleteStandaloneInvoice = async (id: string) => {
+    const response = await this.client.delete(`/standalone-invoices/${id}`);
+    return response.data;
+  };
+
+  sendStandaloneInvoice = async (id: string) => {
+    const response = await this.client.post(`/standalone-invoices/${id}/send`);
+    return response.data;
+  };
+
+  markInvoicePaid = async (id: string) => {
+    const response = await this.client.post(`/standalone-invoices/${id}/mark-paid`);
+    return response.data;
+  };
+
+  getInvoiceStats = async () => {
+    const response = await this.client.get('/standalone-invoices/stats');
     return response.data;
   };
 
@@ -763,4 +984,4 @@ class ApiService {
   };
 }
 
-export const api = new ApiService(); 
+export const api = new ApiService();

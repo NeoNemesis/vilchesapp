@@ -153,12 +153,12 @@ const ReportDetail: React.FC = () => {
             Tillbaka
           </button>
           
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">{report.title}</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{report.title}</h1>
               <p className="text-gray-600 mt-1">Rapport för projekt: {report.project.title}</p>
             </div>
-            
+
             <div className="flex items-center space-x-2">
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                 report.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
@@ -174,17 +174,17 @@ const ReportDetail: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Work Description */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Arbetsbeskrivning</h2>
               <p className="text-gray-700 whitespace-pre-wrap">{report.workDescription}</p>
             </div>
 
             {/* Progress */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Framsteg</h2>
               <div className="flex items-center mb-2">
                 <span className="text-2xl font-bold text-blue-600">{report.progressPercent}%</span>
@@ -200,7 +200,7 @@ const ReportDetail: React.FC = () => {
 
             {/* Materials */}
             {Array.isArray(report.materialsUsed) && report.materialsUsed.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Använda material</h2>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -243,7 +243,7 @@ const ReportDetail: React.FC = () => {
 
             {/* Next Steps */}
             {report.nextSteps && (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Nästa steg</h2>
                 <p className="text-gray-700 whitespace-pre-wrap">{report.nextSteps}</p>
               </div>
@@ -251,7 +251,7 @@ const ReportDetail: React.FC = () => {
 
             {/* Issues */}
             {report.issues && (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <ExclamationTriangleIcon className="h-5 w-5 text-yellow-500 mr-2" />
                   Problem/Utmaningar
@@ -262,12 +262,12 @@ const ReportDetail: React.FC = () => {
 
             {/* Images */}
             {report.images && report.images.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <PhotoIcon className="h-5 w-5 mr-2" />
                   Bilder ({report.images.length})
                 </h2>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
                   {report.images.map((image: any) => (
                     <div key={image.id} className="relative group">
                       <img
@@ -289,7 +289,7 @@ const ReportDetail: React.FC = () => {
           {/* Sidebar */}
           <div className="space-y-6">
             {/* Report Info */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Rapportinfo</h3>
               
               <div className="space-y-4">
@@ -334,7 +334,7 @@ const ReportDetail: React.FC = () => {
             </div>
 
             {/* Project Info */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Projektinfo</h3>
               
               <div className="space-y-3">
@@ -360,7 +360,7 @@ const ReportDetail: React.FC = () => {
 
             {/* Actions */}
             {report.status === 'SUBMITTED' && (
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Åtgärder</h3>
                 
                 <div className="space-y-3">

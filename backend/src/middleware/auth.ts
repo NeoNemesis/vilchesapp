@@ -98,6 +98,9 @@ export const requireRole = (roles: string[]) => {
 // Middleware för admin-endast endpoints
 export const requireAdmin = requireRole(['ADMIN']);
 
+// Middleware för admin eller revisor (read-only access)
+export const requireAdminOrAccountant = requireRole(['ADMIN', 'ACCOUNTANT']);
+
 // Middleware för att kontrollera att användaren äger resursen eller är admin
 export const requireOwnershipOrAdmin = (getUserIdFromParams: (req: Request) => string) => {
   return (req: Request, res: Response, next: NextFunction) => {

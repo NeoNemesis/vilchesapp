@@ -1,8 +1,9 @@
 import { Router } from 'express';
+import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/geocode', async (req, res) => {
+router.get('/geocode', authenticateToken, async (req, res) => {
   try {
     const { q, limit = 1 } = req.query;
     
@@ -61,12 +62,12 @@ router.get('/geocode', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Internal geocoding error',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
 
-router.get('/reverse', async (req, res) => {
+router.get('/reverse', authenticateToken, async (req, res) => {
   try {
     const { lat, lon } = req.query;
     
@@ -123,7 +124,7 @@ router.get('/reverse', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Internal reverse geocoding error',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });

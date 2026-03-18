@@ -17,6 +17,7 @@ import {
   ShieldCheckIcon,
   UserGroupIcon,
   ClockIcon,
+  BanknotesIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -26,8 +27,10 @@ const AdminLayout: React.FC = () => {
 
   const navigation = [
     { name: 'Dashboard', href: '/admin', icon: HomeIcon },
+    { name: 'Kunder', href: '/admin/customers', icon: UsersIcon },
     { name: 'Projekt', href: '/admin/projects', icon: ClipboardDocumentListIcon },
     { name: 'Offerter', href: '/admin/quotes', icon: CurrencyDollarIcon },
+    { name: 'Fakturor', href: '/admin/invoices', icon: DocumentTextIcon },
     { name: 'Offertmallar', href: '/admin/quote-templates', icon: DocumentDuplicateIcon },
     { name: 'Material', href: '/admin/materials', icon: CubeIcon },
     { name: 'Kalender', href: '/admin/calendar', icon: CalendarDaysIcon },
@@ -35,7 +38,8 @@ const AdminLayout: React.FC = () => {
     { name: 'Rapporter', href: '/admin/reports', icon: DocumentTextIcon },
     { name: 'Personal', href: '/admin/employees', icon: UserGroupIcon },
     { name: 'Tidsrapporter', href: '/admin/time-reports', icon: ClockIcon },
-    { name: 'Underleverantörer', href: '/admin/contractors', icon: UsersIcon },
+    { name: 'Löneöversikt', href: '/admin/salary', icon: BanknotesIcon },
+    { name: 'Underleverantörer', href: '/admin/contractors', icon: UserGroupIcon },
     { name: 'Aktivitetsloggar', href: '/admin/activity-logs', icon: ShieldCheckIcon },
     { name: 'Inställningar', href: '/admin/settings', icon: CogIcon },
   ];

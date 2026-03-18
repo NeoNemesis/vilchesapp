@@ -116,7 +116,7 @@ async function generateQuotePDF(quote) {
     doc.fontSize(8)
       .fillColor('#333')
       .font('Helvetica')
-      .text('${process.env.COMPANY_NAME || 'VilchesApp'}', companyInfoX, companyInfoY);
+      .text(process.env.COMPANY_NAME || 'VilchesApp', companyInfoX, companyInfoY);
     companyInfoY += 10;
     doc.text('Kvarnängsgatan 24', companyInfoX, companyInfoY);
     companyInfoY += 10;
@@ -455,12 +455,12 @@ async function generateQuotePDF(quote) {
 
     yPos += 12;
     doc.font('Helvetica')
-      .text('${process.env.COMPANY_NAME || 'VilchesApp'}', 50, yPos);
+      .text(process.env.COMPANY_NAME || 'VilchesApp', 50, yPos);
 
     yPos += 15;
     doc.text('M: +46 707978547', 50, yPos);
     yPos += 12;
-    doc.text('E: ${process.env.COMPANY_EMAIL || ''}', 50, yPos);
+    doc.text(`E: ${process.env.COMPANY_EMAIL || ''}`, 50, yPos);
     yPos += 12;
     doc.text('H: vilchesapp.com', 50, yPos);
 
@@ -739,8 +739,8 @@ function renderFooter(doc, yPos) {
   doc.fontSize(7)
     .fillColor('#333')
     .font('Helvetica')
-    .text('${process.env.COMPANY_NAME || 'VilchesApp'}', col1X, yPos, { lineBreak: false })
-    .text('${process.env.COMPANY_PHONE || ''}', col2X, yPos, { lineBreak: false })
+    .text(process.env.COMPANY_NAME || 'VilchesApp', col1X, yPos, { lineBreak: false })
+    .text(process.env.COMPANY_PHONE || '', col2X, yPos, { lineBreak: false })
     .text('5775-1646', col3X, yPos, { lineBreak: false });
 
   yPos += 8;

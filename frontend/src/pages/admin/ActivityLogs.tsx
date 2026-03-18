@@ -160,10 +160,10 @@ const ActivityLogs: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-slate-700 to-slate-900 rounded-2xl p-6 text-white">
+      <div className="bg-gradient-to-r from-slate-700 to-slate-900 rounded-2xl p-4 sm:p-6 text-white">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-3">
+            <h1 className="text-lg sm:text-2xl font-bold flex items-center gap-2 sm:gap-3">
               <ShieldCheckIcon className="h-7 w-7" />
               Aktivitetsloggar
             </h1>
@@ -184,7 +184,7 @@ const ActivityLogs: React.FC = () => {
 
       {/* Statistikkort */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <StatCard
             label="Totala händelser"
             value={stats.totalEvents}
@@ -245,7 +245,7 @@ const ActivityLogs: React.FC = () => {
           <FunnelIcon className="h-4 w-4 text-gray-500" />
           <span className="text-sm font-medium text-gray-700">Filter</span>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Sökning */}
           <div className="col-span-2 lg:col-span-1 relative">
             <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -520,12 +520,12 @@ function StatCard({ label, value, sub, icon, color, highlight }: {
   };
 
   return (
-    <div className={`bg-white rounded-xl shadow-sm border ${highlight ? 'border-red-400 ring-2 ring-red-100' : colorMap[color] || 'border-gray-200'} p-4`}>
+    <div className={`bg-white rounded-xl shadow-sm border ${highlight ? 'border-red-400 ring-2 ring-red-100' : colorMap[color] || 'border-gray-200'} p-3 sm:p-4`}>
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-medium text-gray-500">{label}</span>
         {icon}
       </div>
-      <p className="text-2xl font-bold text-gray-900">{value.toLocaleString('sv-SE')}</p>
+      <p className="text-lg sm:text-2xl font-bold text-gray-900">{value.toLocaleString('sv-SE')}</p>
       <p className={`text-xs mt-1 ${highlight ? 'text-red-600 font-medium' : 'text-gray-500'}`}>{sub}</p>
     </div>
   );

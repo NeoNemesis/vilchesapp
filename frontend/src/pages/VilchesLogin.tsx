@@ -11,22 +11,22 @@ const VilchesLogin: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Load saved credentials on component mount
+  // Load saved email on component mount
   useEffect(() => {
     const savedEmail = localStorage.getItem('rememberedEmail');
-    const savedPassword = localStorage.getItem('rememberedPassword');
     const savedRememberMe = localStorage.getItem('rememberMe') === 'true';
-    
-    if (savedRememberMe && savedEmail && savedPassword) {
+
+    if (savedRememberMe && savedEmail) {
       setEmail(savedEmail);
-      setPassword(savedPassword);
       setRememberMe(true);
     }
+    // Clean up any previously stored password
+    localStorage.removeItem('rememberedPassword');
   }, []);
 
   // Redirect if already logged in
   if (user) {
-    const redirectPath = user.role === 'ADMIN' ? '/admin' : user.role === 'EMPLOYEE' ? '/employee' : '/contractor';
+    const redirectPath = user.role === 'ADMIN' ? '/admin' : user.role === 'ACCOUNTANT' ? '/accountant' : user.role === 'EMPLOYEE' ? '/employee' : '/contractor';
     return <Navigate to={redirectPath} replace />;
   }
 
@@ -37,21 +37,19 @@ const VilchesLogin: React.FC = () => {
 
     try {
       const response = await api.login(email, password);
-      login(response.user, response.token);
-      
-      // Handle remember me functionality
+      login(response.user);
+
+      // Handle remember me functionality (email only)
       if (rememberMe) {
         localStorage.setItem('rememberedEmail', email);
-        localStorage.setItem('rememberedPassword', password);
         localStorage.setItem('rememberMe', 'true');
       } else {
         localStorage.removeItem('rememberedEmail');
-        localStorage.removeItem('rememberedPassword');
         localStorage.removeItem('rememberMe');
       }
       
       // Navigate after successful login
-      const path = response.user.role === 'ADMIN' ? '/admin' : response.user.role === 'EMPLOYEE' ? '/employee' : '/contractor';
+      const path = response.user.role === 'ADMIN' ? '/admin' : response.user.role === 'ACCOUNTANT' ? '/accountant' : response.user.role === 'EMPLOYEE' ? '/employee' : '/contractor';
       window.location.href = path;
     } catch (error: any) {
       setError(error.response?.data?.message || 'Inloggning misslyckades');

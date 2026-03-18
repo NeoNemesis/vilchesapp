@@ -56,6 +56,7 @@ const AdminTimeReportDetail: React.FC = () => {
   const [sendFormat, setSendFormat] = useState<'pdf' | 'csv' | 'both'>('both');
   const [isEditing, setIsEditing] = useState(false);
   const [editRows, setEditRows] = useState<EditRow[]>([]);
+  const [fortnoxEnabled, setFortnoxEnabled] = useState(false);
 
   const { data: report, isLoading } = useQuery<TimeReport>({
     queryKey: ['admin-time-report', id],
@@ -120,9 +121,23 @@ const AdminTimeReportDetail: React.FC = () => {
     },
   });
 
+  // Check if Fortnox is enabled
+  React.useEffect(() => {
+    api.getFortnoxSettings()
+      .then(data => setFortnoxEnabled(data?.isConnected || false))
+      .catch(() => {});
+  }, []);
+
   const sendMutation = useMutation({
     mutationFn: () => api.sendTimeReportToAccountant(id!, sendFormat),
-    onSuccess: (data) => toast.success(data.message),
+    onSuccess: (data) => {
+      toast.success(data.message);
+      if (data.fortnox === 'ok') {
+        toast.success('Fortnox: Lonebearbetning klar', { duration: 4000 });
+      } else if (data.fortnox === 'error') {
+        toast('Fortnox: Lonebearbetning misslyckades (revisorsmail skickat)', { duration: 4000 });
+      }
+    },
     onError: (error: any) => toast.error(error.response?.data?.message || 'Kunde inte skicka'),
   });
 
@@ -282,26 +297,26 @@ const AdminTimeReportDetail: React.FC = () => {
       </div>
 
       {/* Info cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Anställd</p>
-          <p className="text-sm font-semibold text-gray-900">{report.user?.name}</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-6">
+        <div className="bg-white rounded-lg border border-gray-200 p-2.5 sm:p-4">
+          <p className="text-[10px] sm:text-xs text-gray-500">Anställd</p>
+          <p className="text-xs sm:text-sm font-semibold text-gray-900 truncate">{report.user?.name}</p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Totala timmar</p>
-          <p className="text-sm font-semibold text-gray-900">
+        <div className="bg-white rounded-lg border border-gray-200 p-2.5 sm:p-4">
+          <p className="text-[10px] sm:text-xs text-gray-500">Totala timmar</p>
+          <p className="text-xs sm:text-sm font-semibold text-gray-900">
             {isEditing ? editGrandTotal.toFixed(1) : report.totalHours.toFixed(1)}h
           </p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Inskickad</p>
-          <p className="text-sm font-semibold text-gray-900">
+        <div className="bg-white rounded-lg border border-gray-200 p-2.5 sm:p-4">
+          <p className="text-[10px] sm:text-xs text-gray-500">Inskickad</p>
+          <p className="text-xs sm:text-sm font-semibold text-gray-900">
             {report.submittedAt ? new Date(report.submittedAt).toLocaleDateString('sv-SE') : '-'}
           </p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-xs text-gray-500">Godkänd av</p>
-          <p className="text-sm font-semibold text-gray-900">{report.approvedBy?.name || '-'}</p>
+        <div className="bg-white rounded-lg border border-gray-200 p-2.5 sm:p-4">
+          <p className="text-[10px] sm:text-xs text-gray-500">Godkänd av</p>
+          <p className="text-xs sm:text-sm font-semibold text-gray-900 truncate">{report.approvedBy?.name || '-'}</p>
         </div>
       </div>
 
@@ -337,7 +352,7 @@ const AdminTimeReportDetail: React.FC = () => {
 
       {/* Time grid */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto mb-6">
-        <table className="w-full min-w-[800px]">
+        <table className="w-full min-w-[600px]">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Aktivitet</th>
@@ -486,7 +501,7 @@ const AdminTimeReportDetail: React.FC = () => {
 
       {/* Actions */}
       {!isEditing && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Åtgärder</h3>
 
           <div className="flex flex-wrap gap-3">
@@ -531,6 +546,11 @@ const AdminTimeReportDetail: React.FC = () => {
                     <PaperAirplaneIcon className="h-5 w-5" />
                     {sendMutation.isPending ? 'Skickar...' : 'Skicka till revisor'}
                   </button>
+                  {fortnoxEnabled && (
+                    <span className="text-xs text-purple-600 ml-2 self-center">
+                      Skickas aven till Fortnox for lonebearbetning
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={handleDownloadPdf}

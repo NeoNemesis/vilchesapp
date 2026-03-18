@@ -6,7 +6,7 @@ interface User {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'CONTRACTOR' | 'EMPLOYEE';
+  role: 'ADMIN' | 'CONTRACTOR' | 'EMPLOYEE' | 'ACCOUNTANT';
   company?: string;
   phone?: string;
   isActive: boolean;
@@ -15,7 +15,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (user: User, token: string) => void;
+  login: (user: User) => void;
   logout: () => void;
   updateUser: (user: User) => void;
   isAuthenticated: boolean;
@@ -40,37 +40,38 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const checkAuth = async () => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        api.setAuthToken(token);
-        const userData = JSON.parse(localStorage.getItem('user') || '{}');
-        setUser(userData);
-      } catch (error) {
-        localStorage.removeItem('token');
+    try {
+      // Validate session by calling /auth/me (uses httpOnly cookie)
+      const response = await api.getMe();
+      if (response.success && response.user) {
+        localStorage.setItem('user', JSON.stringify(response.user));
+        setUser(response.user);
+      } else {
         localStorage.removeItem('user');
       }
+    } catch (error) {
+      // Session invalid or expired - clear local state
+      localStorage.removeItem('user');
     }
     setLoading(false);
   };
 
-  const login = (userData: User, token: string) => {
-    localStorage.setItem('token', token);
+  const login = (userData: User) => {
+    // Only store user info for UI purposes; auth is handled by httpOnly cookies
     localStorage.setItem('user', JSON.stringify(userData));
-    
-    api.setAuthToken(token);
     setUser(userData);
-    
     toast.success(`Välkommen ${userData.name}!`);
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch (error) {
+      // Proceed with local cleanup even if server logout fails
+    }
     localStorage.removeItem('user');
-    api.clearAuthToken();
     setUser(null);
     toast.success('Du har loggat ut');
-    // Navigate to login
     window.location.href = '/login';
   };
 

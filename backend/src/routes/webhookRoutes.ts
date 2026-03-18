@@ -6,32 +6,34 @@ import { prisma } from '../lib/prisma';
 
 const router = Router();
 
-// API-nyckel för webhook (MÅSTE sättas i .env)
-const WEBHOOK_API_KEY = process.env.WEBHOOK_API_KEY;
+// Tillåtna origins — konfigureras via CORS_ORIGINS env var eller defaults
+const ALLOWED_ORIGINS = [
+  ...(process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean),
+  'http://localhost:3000',
+  'http://localhost:5173',
+];
 
-if (!WEBHOOK_API_KEY) {
-  console.error('CRITICAL: WEBHOOK_API_KEY is not set in environment variables!');
-}
+// Middleware för att validera Origin (ersätter API-nyckel)
+const validateOrigin = (req: any, res: any, next: any) => {
+  const origin = req.headers.origin || '';
+  const referer = req.headers.referer || '';
 
-// Middleware för att validera API-nyckel
-const validateApiKey = (req: any, res: any, next: any) => {
-  // Avvisa alla requests om API-nyckeln inte är konfigurerad
-  if (!WEBHOOK_API_KEY) {
-    console.error('Webhook request rejected: WEBHOOK_API_KEY not configured');
-    return res.status(503).json({
+  const isAllowed =
+    ALLOWED_ORIGINS.includes(origin) ||
+    ALLOWED_ORIGINS.some((allowed: string) => referer.startsWith(allowed));
+
+  if (!isAllowed) {
+    console.warn('[WEBHOOK] Blockad: origin=' + origin + ' referer=' + referer + ' ip=' + req.ip);
+    return res.status(403).json({
       success: false,
-      message: 'Webhook service not properly configured'
+      message: 'Åtkomst nekad'
     });
   }
 
-  const apiKey = req.headers['x-api-key'];
-
-  if (!apiKey || apiKey !== WEBHOOK_API_KEY) {
-    return res.status(401).json({
-      success: false,
-      message: 'Ogiltig API-nyckel'
-    });
-  }
+  // Sätt CORS-headers
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   next();
 };
@@ -118,7 +120,7 @@ async function sendEmailToCustomer(
     port: 465,
     secure: true,
     auth: {
-      user: '${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}',
+      user: process.env.COMPANY_EMAIL || process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || ''
     }
   });
@@ -153,9 +155,9 @@ async function sendEmailToCustomer(
 </html>`;
 
   await transporter.sendMail({
-    from: '"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}>',
+    from: `"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}>`,
     to: email,
-    subject: 'Tack för din förfrågan - ${process.env.COMPANY_NAME || 'VilchesApp'}',
+    subject: `Tack för din förfrågan - ${process.env.COMPANY_NAME || 'VilchesApp'}`,
     html: htmlContent
   });
 }
@@ -175,7 +177,7 @@ async function sendEmailToAdmin(
     port: 465,
     secure: true,
     auth: {
-      user: '${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}',
+      user: process.env.COMPANY_EMAIL || process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || ''
     }
   });
@@ -202,8 +204,8 @@ async function sendEmailToAdmin(
 </html>`;
 
   await transporter.sendMail({
-    from: '"Vilches System" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}>',
-    to: '${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}',
+    from: `"Vilches System" <${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}>`,
+    to: process.env.COMPANY_EMAIL || process.env.SMTP_USER || '',
     subject: `Ny kontaktförfrågan - ${clientName}`,
     html: htmlContent
   });
@@ -254,7 +256,7 @@ ${description}
  * Publikt endpoint för att skapa otilldelade projekt via n8n
  * Kräver API-nyckel i header: x-api-key
  */
-router.post('/project', validateApiKey, async (req, res) => {
+router.post('/project', validateOrigin, async (req, res) => {
   try {
     // ✅ FIX: Mappa gamla fältnamn från frontend till nya fältnamn
     const requestBody = req.body;
@@ -289,7 +291,7 @@ router.post('/project', validateApiKey, async (req, res) => {
       title: validatedData.title,
       description: validatedData.description,
       clientName: validatedData.clientName,
-      clientEmail: validatedData.clientEmail || '${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}', // ✅ FIX: Prisma kräver email, använd default om saknas
+      clientEmail: validatedData.clientEmail || process.env.COMPANY_EMAIL || process.env.SMTP_USER || '', // ✅ FIX: Prisma kräver email, använd default om saknas
       address: validatedData.address || 'Ej angivet',
       priority: validatedData.priority,
       status: 'PENDING', // Alltid otilldelat från webhook
@@ -343,7 +345,7 @@ router.post('/project', validateApiKey, async (req, res) => {
     if (!validatedData.clientPhone || confirmationMethod === 'email-fallback') {
       try {
         await sendEmailToCustomer(
-          validatedData.clientEmail || '${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}',
+          validatedData.clientEmail || process.env.COMPANY_EMAIL || process.env.SMTP_USER || '',
           validatedData.clientName,
           project.projectNumber,
           validatedData.description
@@ -364,7 +366,7 @@ router.post('/project', validateApiKey, async (req, res) => {
         project.projectNumber,
         validatedData.description
       );
-      console.log('✅ Email skickat till ${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}');
+      console.log(`✅ Email skickat till ${process.env.COMPANY_EMAIL || process.env.SMTP_USER || ''}`);
     } catch (emailError) {
       console.error('⚠️ Email till admin kunde inte skickas:', emailError);
     }
@@ -410,7 +412,7 @@ router.post('/project', validateApiKey, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Kunde inte skapa projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });

@@ -141,7 +141,7 @@ router.get('/status', authenticateToken, requireAdmin, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Kunde inte hämta automatiseringsstatus',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });

@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
 
 // Arkivera ett projekt
-router.post('/projects/:id/archive', authenticateToken, async (req: Request, res: Response) => {
+router.post('/projects/:id/archive', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userId = (req as any).user?.id;
@@ -58,7 +58,7 @@ router.post('/projects/:id/archive', authenticateToken, async (req: Request, res
 });
 
 // Återställ ett arkiverat projekt
-router.post('/projects/:id/unarchive', authenticateToken, async (req: Request, res: Response) => {
+router.post('/projects/:id/unarchive', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -101,7 +101,7 @@ router.post('/projects/:id/unarchive', authenticateToken, async (req: Request, r
 });
 
 // Lista arkiverade projekt
-router.get('/projects/archived', authenticateToken, async (req: Request, res: Response) => {
+router.get('/projects/archived', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { search, sortBy = 'archivedAt', order = 'desc' } = req.query;
 
@@ -141,7 +141,7 @@ router.get('/projects/archived', authenticateToken, async (req: Request, res: Re
 });
 
 // Global sökning (inkludera arkiv)
-router.get('/projects/search', authenticateToken, async (req: Request, res: Response) => {
+router.get('/projects/search', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
   try {
     const { 
       query, 

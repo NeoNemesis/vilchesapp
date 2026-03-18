@@ -77,11 +77,13 @@ const upload = multer({
     files: 10 // Max 10 filer för rapporter
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
+    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!allowedMimes.includes(file.mimetype) || !allowedExtensions.includes(ext)) {
       cb(new Error('Endast bilder är tillåtna (JPEG, PNG, WebP)'));
+    } else {
+      cb(null, true);
     }
   }
 });
@@ -159,7 +161,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error fetching projects:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -241,12 +243,13 @@ router.get('/my', authenticateToken, async (req, res) => {
 
     // 🔒 Filtrera bort kostnadsdata för contractors
     const filteredProjects = filterCostDataForContractorArray(projects, userRole);
-    res.json(filteredProjects);
+    console.log(`📋 GET /projects/my - userId: ${userId}, role: ${userRole}, projects: ${filteredProjects.length}`);
+    res.json({ success: true, projects: filteredProjects });
   } catch (error) {
     console.error('Error fetching my projects:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta dina projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -323,7 +326,7 @@ router.get('/my/completed', authenticateToken, async (req, res) => {
     console.error('Error fetching completed projects:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta färdiga projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -364,7 +367,7 @@ router.get('/recent', authenticateToken, async (req, res) => {
     console.error('Error fetching recent projects:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta senaste projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -404,7 +407,7 @@ router.get('/analytics', authenticateToken, async (req, res) => {
     console.error('Error fetching analytics:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta analytics',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -508,7 +511,7 @@ router.get('/dashboard-stats', authenticateToken, async (req, res) => {
     console.error('Error fetching dashboard stats:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta dashboard-statistik',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -837,7 +840,7 @@ router.get('/recent-activities', authenticateToken, async (req, res) => {
     console.error('Error fetching recent activities:', error);
     res.status(500).json({
       message: 'Kunde inte hämta senaste aktiviteter',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -951,7 +954,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     console.error('Error fetching project details:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta projektdetaljer',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -1061,7 +1064,7 @@ router.post('/', authenticateToken, requireAdmin, upload.array('images', 5), asy
 
     res.status(500).json({ 
       message: 'Kunde inte skapa projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -1171,7 +1174,7 @@ router.put('/:id', authenticateToken, requireAdmin, upload.array('images', 5), a
 
     res.status(500).json({ 
       message: 'Kunde inte uppdatera projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -1208,7 +1211,7 @@ router.delete('/:id/images/:imageId', authenticateToken, requireAdmin, async (re
     console.error('Error deleting project image:', error);
     res.status(500).json({
       message: 'Kunde inte radera bild',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -1292,7 +1295,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     console.error('Error deleting project:', error);
     res.status(500).json({ 
       message: 'Kunde inte ta bort projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -1350,7 +1353,7 @@ router.put('/:id/assign', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error assigning project:', error);
     res.status(500).json({ 
       message: 'Kunde inte tilldela projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -1478,7 +1481,7 @@ router.put('/:id/accept', authenticateToken, async (req, res) => {
     console.error('Error accepting project:', error);
     res.status(500).json({ 
       message: 'Kunde inte acceptera projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });
@@ -1565,7 +1568,7 @@ router.put('/:id/reject', authenticateToken, async (req, res) => {
     console.error('Error rejecting project:', error);
     res.status(500).json({ 
       message: 'Kunde inte avvisa projekt',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      ...(process.env.NODE_ENV !== 'production' && { error: error instanceof Error ? error.message : 'Okänt fel' })
     });
   }
 });

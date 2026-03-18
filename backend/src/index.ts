@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import cookieParser from 'cookie-parser';
+import jwt from 'jsonwebtoken';
 import {
   generalLimiter,
   securityHeaders,
@@ -45,8 +46,20 @@ app.use(generalLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Statiska filer (för uppladdade bilder)
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Statiska filer (för uppladdade bilder) — kräver autentisering
+app.use('/uploads', (req, res, next) => {
+  // Allow if valid auth cookie or Authorization header exists
+  const token = req.cookies?.accessToken || req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+  try {
+    jwt.verify(token, process.env.JWT_SECRET!);
+    next();
+  } catch {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+}, express.static(path.join(__dirname, '../uploads')));
 
 // Grundläggande health check route
 app.get('/health', async (req, res) => {
@@ -92,6 +105,12 @@ import activityLogRoutes from './routes/activityLogRoutes';
 import employeeRoutes from './routes/employeeRoutes';
 import timeReportRoutes from './routes/timeReportRoutes';
 import accountantSettingsRoutes from './routes/accountantSettingsRoutes';
+import fortnoxSettingsRoutes from './routes/fortnoxSettingsRoutes';
+import calendarRoutes from './routes/calendarRoutes';
+import salaryRoutes from './routes/salaryRoutes';
+import invoiceRoutes from './routes/invoiceRoutes';
+import customerRoutes from './routes/customerRoutes';
+import standaloneInvoiceRoutes from './routes/standaloneInvoiceRoutes';
 
 // Setup routes (no auth required — used during first-time setup)
 app.use('/api/setup', setupRoutes);
@@ -113,6 +132,12 @@ app.use('/api/activity-logs', activityLogRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/time-reports', timeReportRoutes);
 app.use('/api/settings/accountant', accountantSettingsRoutes);
+app.use('/api/settings/fortnox', fortnoxSettingsRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/salary', salaryRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/standalone-invoices', standaloneInvoiceRoutes);
 
 app.get('/api', (req, res) => {
   res.json({

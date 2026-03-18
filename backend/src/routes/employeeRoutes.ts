@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
-import { authenticateToken, requireAdmin } from '../middleware/auth';
+import { authenticateToken, requireAdmin, requireAdminOrAccountant } from '../middleware/auth';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
@@ -40,11 +40,15 @@ const updateEmployeeSchema = z.object({
 });
 
 // GET /api/employees - Hämta alla anställda
-router.get('/', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/', authenticateToken, requireAdminOrAccountant, async (req, res) => {
   try {
+    const includeRoles = req.query.includeAccountants === 'true'
+      ? ['EMPLOYEE', 'ACCOUNTANT'] as const
+      : ['EMPLOYEE'] as const;
+
     const employees = await prisma.user.findMany({
       where: {
-        role: 'EMPLOYEE'
+        role: { in: [...includeRoles] }
       },
       select: {
         id: true,
@@ -52,6 +56,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
         email: true,
         phone: true,
         company: true,
+        role: true,
         isActive: true,
         createdAt: true,
         hourlyRate: true,
@@ -67,7 +72,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error fetching employees:', error);
     res.status(500).json({
       message: 'Kunde inte hämta anställda',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -78,13 +83,14 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     const employee = await prisma.user.findFirst({
-      where: { id, role: 'EMPLOYEE' },
+      where: { id, role: { in: ['EMPLOYEE', 'ACCOUNTANT'] } },
       select: {
         id: true,
         name: true,
         email: true,
         phone: true,
         company: true,
+        role: true,
         isActive: true,
         createdAt: true,
         hourlyRate: true,
@@ -120,7 +126,17 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
           select: {
             id: true,
             activityName: true,
+            comment: true,
+            projectId: true,
+            mondayHours: true,
+            tuesdayHours: true,
+            wednesdayHours: true,
+            thursdayHours: true,
+            fridayHours: true,
+            saturdayHours: true,
+            sundayHours: true,
             totalHours: true,
+            sortOrder: true,
             project: {
               select: { id: true, title: true, projectNumber: true }
             }
@@ -152,7 +168,7 @@ router.get('/:id', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error fetching employee:', error);
     res.status(500).json({
       message: 'Kunde inte hämta anställd',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -203,10 +219,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
     console.log(`Ny anställd skapad: ${employee.email}`);
 
-    res.status(201).json({
-      ...employee,
-      tempPassword
-    });
+    res.status(201).json(employee);
   } catch (error) {
     console.error('Error creating employee:', error);
 
@@ -219,7 +232,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
     res.status(500).json({
       message: 'Kunde inte skapa anställd',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -231,7 +244,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
     const validatedData = updateEmployeeSchema.parse(req.body);
 
     const existingEmployee = await prisma.user.findFirst({
-      where: { id, role: 'EMPLOYEE' }
+      where: { id, role: { in: ['EMPLOYEE', 'ACCOUNTANT'] } }
     });
 
     if (!existingEmployee) {
@@ -263,6 +276,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
         email: true,
         phone: true,
         company: true,
+        role: true,
         isActive: true,
         createdAt: true,
         hourlyRate: true,
@@ -288,7 +302,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
 
     res.status(500).json({
       message: 'Kunde inte uppdatera anställd',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -299,7 +313,7 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
 
     const existingEmployee = await prisma.user.findFirst({
-      where: { id, role: 'EMPLOYEE' }
+      where: { id, role: { in: ['EMPLOYEE', 'ACCOUNTANT'] } }
     });
 
     if (!existingEmployee) {
@@ -326,7 +340,7 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error deleting employee:', error);
     res.status(500).json({
       message: 'Kunde inte ta bort anställd',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -337,11 +351,11 @@ router.post('/:id/send-welcome', authenticateToken, requireAdmin, async (req, re
     const { id } = req.params;
 
     const employee = await prisma.user.findFirst({
-      where: { id, role: 'EMPLOYEE' }
+      where: { id, role: { in: ['EMPLOYEE', 'ACCOUNTANT'] } }
     });
 
     if (!employee) {
-      return res.status(404).json({ message: 'Anställd hittades inte' });
+      return res.status(404).json({ message: 'Användare hittades inte' });
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
@@ -362,13 +376,14 @@ router.post('/:id/send-welcome', authenticateToken, requireAdmin, async (req, re
       },
     });
 
-    const loginUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/employee`;
-    const resetUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/reset-password?token=${resetToken}`;
+    const portalPath = employee.role === 'ACCOUNTANT' ? '/accountant' : '/employee';
+    const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}${portalPath}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
     await transporter.sendMail({
       from: `${process.env.SMTP_FROM_NAME} <${process.env.SMTP_FROM_EMAIL}>`,
       to: employee.email,
-      subject: 'Välkommen till ${process.env.COMPANY_NAME || 'VilchesApp'} - Skapa ditt lösenord',
+      subject: `Välkommen till ${process.env.COMPANY_NAME || 'VilchesApp'} - Skapa ditt lösenord`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 30px; text-align: center;">
@@ -377,12 +392,18 @@ router.post('/:id/send-welcome', authenticateToken, requireAdmin, async (req, re
           <div style="padding: 30px; background: #f9fafb;">
             <h2 style="color: #1f2937; margin-bottom: 20px;">Hej ${employee.name}!</h2>
             <p style="color: #4b5563; line-height: 1.6; margin-bottom: 20px;">
-              Du har blivit registrerad som anställd i vårt system. Här kommer du att kunna:
+              Du har blivit registrerad ${employee.role === 'ACCOUNTANT' ? 'som revisor' : 'som anställd'} i vårt system. Här kommer du att kunna:
             </p>
             <ul style="color: #4b5563; line-height: 1.8; margin-bottom: 25px;">
+              ${employee.role === 'ACCOUNTANT' ? `
+              <li>Granska godkända tidsrapporter</li>
+              <li>Ladda ner PDF och CSV-underlag</li>
+              <li>Se personalinformation och löneunderlag</li>
+              ` : `
               <li>Rapportera din arbetstid veckovis</li>
               <li>Se historik över dina tidsrapporter</li>
               <li>Hantera dina profilinställningar</li>
+              `}
             </ul>
             <div style="background: #fff; padding: 25px; border-radius: 8px; border-left: 4px solid #2563eb; margin: 25px 0;">
               <h3 style="color: #1f2937; margin-top: 0;">Kom igång:</h3>
@@ -418,7 +439,7 @@ router.post('/:id/send-welcome', authenticateToken, requireAdmin, async (req, re
     console.error('Error sending welcome email:', error);
     res.status(500).json({
       message: 'Kunde inte skicka välkomstmail',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -429,7 +450,7 @@ router.post('/:id/reset-password', authenticateToken, requireAdmin, async (req, 
     const { id } = req.params;
 
     const employee = await prisma.user.findFirst({
-      where: { id, role: 'EMPLOYEE' }
+      where: { id, role: { in: ['EMPLOYEE', 'ACCOUNTANT'] } }
     });
 
     if (!employee) {
@@ -454,12 +475,12 @@ router.post('/:id/reset-password', authenticateToken, requireAdmin, async (req, 
       },
     });
 
-    const resetUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/reset-password?token=${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
     await transporter.sendMail({
       from: `${process.env.SMTP_FROM_NAME} <${process.env.SMTP_FROM_EMAIL}>`,
       to: employee.email,
-      subject: 'Återställ ditt lösenord - ${process.env.COMPANY_NAME || 'VilchesApp'}',
+      subject: `Återställ ditt lösenord - ${process.env.COMPANY_NAME || 'VilchesApp'}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 30px; text-align: center;">
@@ -495,7 +516,7 @@ router.post('/:id/reset-password', authenticateToken, requireAdmin, async (req, 
     console.error('Error sending password reset email:', error);
     res.status(500).json({
       message: 'Kunde inte skicka lösenordsbyte-mail',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });

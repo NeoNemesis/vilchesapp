@@ -16,9 +16,26 @@ const accountantSchema = z.object({
 // GET /api/settings/accountant - Hämta inställningar
 router.get('/', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const settings = await prisma.accountantSettings.findFirst({
+    let settings = await prisma.accountantSettings.findFirst({
       orderBy: { updatedAt: 'desc' }
     });
+
+    // If no settings saved yet, try to populate from ACCOUNTANT user
+    if (!settings) {
+      const accountantUser = await prisma.user.findFirst({
+        where: { role: 'ACCOUNTANT' },
+        select: { name: true, email: true, phone: true, company: true }
+      });
+      if (accountantUser) {
+        res.json({
+          name: accountantUser.name,
+          email: accountantUser.email,
+          phone: accountantUser.phone || '',
+          company: accountantUser.company || '',
+        });
+        return;
+      }
+    }
 
     res.json(settings || null);
   } catch (error) {
@@ -51,6 +68,22 @@ router.put('/', authenticateToken, requireAdmin, async (req, res) => {
         data: {
           ...validatedData,
           updatedById: req.user!.userId,
+        }
+      });
+    }
+
+    // Sync with ACCOUNTANT user account if one exists with matching email
+    const accountantUser = await prisma.user.findFirst({
+      where: { role: 'ACCOUNTANT' }
+    });
+    if (accountantUser) {
+      await prisma.user.update({
+        where: { id: accountantUser.id },
+        data: {
+          name: validatedData.name,
+          email: validatedData.email,
+          phone: validatedData.phone || null,
+          company: validatedData.company || null,
         }
       });
     }
@@ -91,7 +124,7 @@ router.post('/test-email', authenticateToken, requireAdmin, async (req, res) => 
     await transporter.sendMail({
       from: `${process.env.SMTP_FROM_NAME} <${process.env.SMTP_FROM_EMAIL}>`,
       to: settings.email,
-      subject: 'Testmail - ${process.env.COMPANY_NAME || 'VilchesApp'} Tidsrapportering',
+      subject: `Testmail - ${process.env.COMPANY_NAME || 'VilchesApp'} Tidsrapportering`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 30px; text-align: center;">

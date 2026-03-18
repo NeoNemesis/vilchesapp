@@ -151,12 +151,9 @@ const Documents: React.FC = () => {
 
   const handleDownload = async (doc: Document) => {
     try {
-      // Använd direkt fetch för blob-nedladdning
-      const token = localStorage.getItem('token');
+      // Använd direkt fetch för blob-nedladdning med cookies
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/documents/${doc.id}/download`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        credentials: 'include'
       });
       
       if (!response.ok) {

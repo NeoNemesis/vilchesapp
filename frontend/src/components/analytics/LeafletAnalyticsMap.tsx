@@ -114,7 +114,7 @@ const LeafletAnalyticsMap: React.FC<LeafletAnalyticsMapProps> = ({ data }) => {
         <MapContainer
           center={defaultCenter}
           zoom={5}
-          className="h-[500px] w-full"
+          className="h-[300px] sm:h-[400px] lg:h-[500px] w-full"
           style={{ background: '#F3F4F6' }}
         >
           <TileLayer
@@ -156,30 +156,30 @@ const LeafletAnalyticsMap: React.FC<LeafletAnalyticsMapProps> = ({ data }) => {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg">
-          <div className="text-4xl font-bold mb-1">{citiesWithCoords.length}</div>
-          <div className="text-blue-100 text-sm font-medium">Städer på kartan</div>
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-3 sm:p-6 text-white shadow-lg">
+          <div className="text-2xl sm:text-4xl font-bold mb-1">{citiesWithCoords.length}</div>
+          <div className="text-blue-100 text-xs sm:text-sm font-medium">Städer</div>
         </div>
-        <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-6 text-white shadow-lg">
-          <div className="text-4xl font-bold mb-1">
+        <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-3 sm:p-6 text-white shadow-lg">
+          <div className="text-2xl sm:text-4xl font-bold mb-1">
             {data.reduce((sum, city) => sum + city.users, 0)}
           </div>
-          <div className="text-indigo-100 text-sm font-medium">Totalt besökare</div>
+          <div className="text-indigo-100 text-xs sm:text-sm font-medium">Besökare</div>
         </div>
-        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
-          <div className="text-2xl font-bold mb-1 truncate">{citiesWithCoords[0]?.city || '-'}</div>
-          <div className="text-purple-100 text-sm font-medium">Top stad</div>
+        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-3 sm:p-6 text-white shadow-lg">
+          <div className="text-lg sm:text-2xl font-bold mb-1 truncate">{citiesWithCoords[0]?.city || '-'}</div>
+          <div className="text-purple-100 text-xs sm:text-sm font-medium">Top stad</div>
         </div>
       </div>
 
       {/* City list */}
-      <div className="bg-white rounded-xl shadow-lg p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <span className="text-2xl">📍</span>
+      <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6">
+        <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span className="text-xl sm:text-2xl">📍</span>
           Alla städer ({data.length})
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
           {data.map((city, index) => {
             const percentage = (city.users / maxUsers) * 100;
             const isTop = index < 3;
@@ -187,7 +187,7 @@ const LeafletAnalyticsMap: React.FC<LeafletAnalyticsMapProps> = ({ data }) => {
             return (
               <div
                 key={index}
-                className={`p-4 rounded-lg transition-all hover:scale-105 ${
+                className={`p-3 sm:p-4 rounded-lg transition-all hover:scale-105 ${
                   isTop
                     ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg'
                     : 'bg-gray-50 hover:bg-gray-100'
@@ -221,24 +221,24 @@ const LeafletAnalyticsMap: React.FC<LeafletAnalyticsMapProps> = ({ data }) => {
       </div>
 
       {/* Legend */}
-      <div className="bg-white rounded-xl shadow-lg p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">Kartförklaring</h3>
-        <div className="grid grid-cols-3 gap-4">
+      <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6">
+        <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-3 sm:mb-4">Kartförklaring</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-red-500 rounded-full"></div>
-            <span className="text-sm text-gray-700 font-medium">Flest besökare (70%+)</span>
+            <div className="w-5 h-5 sm:w-6 sm:h-6 bg-red-500 rounded-full flex-shrink-0"></div>
+            <span className="text-xs sm:text-sm text-gray-700 font-medium">Flest besökare (70%+)</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 bg-orange-500 rounded-full"></div>
-            <span className="text-sm text-gray-700 font-medium">Många besökare (40-70%)</span>
+            <div className="w-4 h-4 sm:w-5 sm:h-5 bg-orange-500 rounded-full flex-shrink-0"></div>
+            <span className="text-xs sm:text-sm text-gray-700 font-medium">Många besökare (40-70%)</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 bg-blue-500 rounded-full"></div>
-            <span className="text-sm text-gray-700 font-medium">Färre besökare (0-40%)</span>
+            <div className="w-3 h-3 sm:w-4 sm:h-4 bg-blue-500 rounded-full flex-shrink-0"></div>
+            <span className="text-xs sm:text-sm text-gray-700 font-medium">Färre besökare (0-40%)</span>
           </div>
         </div>
-        <p className="text-xs text-gray-500 mt-4">
-          💡 Klicka på en markör för att se mer information om besökare från den staden
+        <p className="text-xs text-gray-500 mt-3 sm:mt-4">
+          Klicka på en markör för att se mer information
         </p>
       </div>
     </div>

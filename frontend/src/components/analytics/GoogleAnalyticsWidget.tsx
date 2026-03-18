@@ -160,15 +160,15 @@ const GoogleAnalyticsWidget: React.FC<GoogleAnalyticsWidgetProps> = ({ defaultDa
   return (
     <div className="space-y-6">
       {/* Header med period selector */}
-      <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-xl shadow-lg p-6 text-white">
-        <div className="flex items-center justify-between">
+      <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-xl shadow-lg p-4 sm:p-6 text-white">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold flex items-center">
-              <GlobeAltIcon className="h-6 w-6 mr-2" />
+            <h2 className="text-lg sm:text-2xl font-bold flex items-center">
+              <GlobeAltIcon className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
               Website Analytics
             </h2>
-            <p className="text-blue-100 mt-1">Google Analytics statistik från din hemsida</p>
-            <div className="flex items-center mt-2 text-sm text-blue-100">
+            <p className="text-blue-100 mt-1 text-sm sm:text-base">Google Analytics statistik från din hemsida</p>
+            <div className="flex items-center flex-wrap mt-2 text-xs sm:text-sm text-blue-100">
               <ClockIcon className="h-4 w-4 mr-1" />
               Senast uppdaterad: {formatTimeSince(lastUpdated)}
               {cacheInfo?.data?.size > 0 && (
@@ -179,25 +179,25 @@ const GoogleAnalyticsWidget: React.FC<GoogleAnalyticsWidgetProps> = ({ defaultDa
             </div>
           </div>
           <div className="flex flex-col space-y-2">
-            <div className="flex space-x-2">
+            <div className="grid grid-cols-4 gap-1 sm:flex sm:space-x-2">
               {[7, 14, 30, 90].map((days) => (
                 <button
                   key={days}
                   onClick={() => setSelectedDays(days)}
-                  className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
+                  className={`px-2 sm:px-3 py-1.5 text-xs sm:text-sm rounded-lg transition-all text-center ${
                     selectedDays === days
                       ? 'bg-white text-blue-600 font-semibold shadow-md'
                       : 'bg-blue-500/30 text-white hover:bg-blue-500/50'
                   }`}
                 >
-                  {days} dagar
+                  {days}d
                 </button>
               ))}
             </div>
             <button
               onClick={() => clearCacheMutation.mutate()}
               disabled={clearCacheMutation.isPending}
-              className="px-3 py-1.5 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all flex items-center justify-center disabled:opacity-50"
+              className="px-3 py-1.5 text-xs sm:text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all flex items-center justify-center disabled:opacity-50"
               title="Rensa cache och hämta fresh data"
             >
               <ArrowPathIcon className={`h-4 w-4 mr-1 ${clearCacheMutation.isPending ? 'animate-spin' : ''}`} />
@@ -208,22 +208,22 @@ const GoogleAnalyticsWidget: React.FC<GoogleAnalyticsWidgetProps> = ({ defaultDa
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         {statsCards.map((card) => (
           <div
             key={card.name}
             className="bg-white overflow-hidden shadow-lg rounded-xl hover:shadow-xl transition-shadow duration-300"
           >
-            <div className="p-5">
+            <div className="p-3 sm:p-5">
               <div className="flex items-center">
-                <div className={`${card.bgColor} rounded-xl p-3`}>
-                  <card.icon className={`h-6 w-6 ${card.textColor}`} />
+                <div className={`${card.bgColor} rounded-lg sm:rounded-xl p-2 sm:p-3`}>
+                  <card.icon className={`h-5 w-5 sm:h-6 sm:w-6 ${card.textColor}`} />
                 </div>
-                <div className="ml-4 flex-1">
-                  <p className="text-sm font-medium text-gray-500">{card.name}</p>
-                  <p className="text-2xl font-bold text-gray-900 mt-1">{card.value}</p>
+                <div className="ml-3 sm:ml-4 flex-1 min-w-0">
+                  <p className="text-xs sm:text-sm font-medium text-gray-500 truncate">{card.name}</p>
+                  <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-0.5 sm:mt-1">{card.value}</p>
                   {card.subtitle && (
-                    <p className="text-xs text-gray-500 mt-1">{card.subtitle}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 sm:mt-1 truncate">{card.subtitle}</p>
                   )}
                 </div>
               </div>
@@ -235,16 +235,16 @@ const GoogleAnalyticsWidget: React.FC<GoogleAnalyticsWidgetProps> = ({ defaultDa
       {/* Charts Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Trender över tid */}
-        <div className="bg-white shadow-lg rounded-xl p-6 lg:col-span-2">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+        <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6 lg:col-span-2">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center">
             <ArrowTrendingUpIcon className="h-5 w-5 mr-2 text-blue-600" />
             Trender över tid
           </h3>
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={220} className="sm:!h-[300px]">
             <LineChart data={trendsData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="date" stroke="#6b7280" />
-              <YAxis stroke="#6b7280" />
+              <XAxis dataKey="date" stroke="#6b7280" tick={{ fontSize: 11 }} />
+              <YAxis stroke="#6b7280" tick={{ fontSize: 11 }} width={35} />
               <Tooltip
                 contentStyle={{
                   backgroundColor: '#f9fafb',
@@ -274,19 +274,19 @@ const GoogleAnalyticsWidget: React.FC<GoogleAnalyticsWidgetProps> = ({ defaultDa
         </div>
 
         {/* Trafikkällor */}
-        <div className="bg-white shadow-lg rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+        <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center">
             <ChartBarIcon className="h-5 w-5 mr-2 text-green-600" />
             Trafikkällor
           </h3>
-          <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={200} className="sm:!h-[250px]">
             <PieChart>
               <Pie
                 data={trafficSourcesChart}
                 cx="50%"
                 cy="50%"
-                innerRadius={60}
-                outerRadius={90}
+                innerRadius={45}
+                outerRadius={75}
                 paddingAngle={5}
                 dataKey="value"
                 label={(entry) => entry.name}
@@ -315,8 +315,8 @@ const GoogleAnalyticsWidget: React.FC<GoogleAnalyticsWidgetProps> = ({ defaultDa
         </div>
 
         {/* Konverteringar & Kontakter - NY WIDGET! */}
-        <div className="bg-white shadow-lg rounded-xl p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+        <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center">
             <DocumentCheckIcon className="h-5 w-5 mr-2 text-purple-600" />
             Kundkontakter
           </h3>
@@ -365,17 +365,17 @@ const GoogleAnalyticsWidget: React.FC<GoogleAnalyticsWidgetProps> = ({ defaultDa
         </div>
 
         {/* Geografisk data - Interaktiv Karta */}
-        <div className="bg-white shadow-lg rounded-xl p-6 lg:col-span-2">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+        <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6 lg:col-span-2">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center">
             <MapPinIcon className="h-5 w-5 mr-2 text-purple-600" />
-            Besökare per stad - Interaktiv karta
+            Besökare per stad
           </h3>
           <LeafletAnalyticsMap data={geographicData} />
         </div>
 
         {/* Populäraste sidor */}
-        <div className="bg-white shadow-lg rounded-xl p-6 lg:col-span-2">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+        <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6 lg:col-span-2">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 flex items-center">
             <DocumentCheckIcon className="h-5 w-5 mr-2 text-orange-600" />
             Populäraste sidor
           </h3>

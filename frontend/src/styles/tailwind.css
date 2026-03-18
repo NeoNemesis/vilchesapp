@@ -114,4 +114,18 @@ html.dark .hover\:bg-gray-100:hover {
 
 html.dark .hover\:bg-gray-200:hover {
   background-color: #4b5563 !important;
+}
+
+/* Leaflet z-index fix: prevent map from overlapping mobile navigation */
+.leaflet-container {
+  z-index: 0 !important;
+}
+
+/* Scrollbar hide utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 } 

@@ -202,22 +202,23 @@ const AdminQuotes: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Offerter</h1>
-          <p className="mt-2 text-sm text-gray-700">
+          <h1 className="text-xl sm:text-3xl font-bold text-gray-900">Offerter</h1>
+          <p className="mt-1 sm:mt-2 text-sm text-gray-700">
             Hantera AI-drivna offerter och konvertera dem till projekt
           </p>
         </div>
         <Link
           to="/admin/quotes/new"
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          className="inline-flex items-center px-3 py-1.5 sm:px-4 sm:py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
         >
-          <PlusIcon className="h-5 w-5 mr-2" />
-          Ny offert
+          <PlusIcon className="h-5 w-5 mr-1 sm:mr-2" />
+          <span className="hidden sm:inline">Ny offert</span>
+          <span className="sm:hidden">Ny</span>
         </Link>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white rounded-lg shadow p-3 sm:p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Status Filter */}
           <div>
@@ -299,7 +300,7 @@ const AdminQuotes: React.FC = () => {
           <ul className="divide-y divide-gray-200">
             {quotes.map((quote: Quote) => (
               <li key={quote.id} className="hover:bg-gray-50">
-                <div className="px-4 py-4 sm:px-6">
+                <div className="px-3 sm:px-6 py-3 sm:py-4">
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
@@ -339,10 +340,10 @@ const AdminQuotes: React.FC = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="mt-4 flex items-center space-x-2">
+                  <div className="mt-3 sm:mt-4 flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <Link
                       to={`/admin/quotes/${quote.id}`}
-                      className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
+                      className="inline-flex items-center px-2 py-1 sm:px-3 sm:py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
                     >
                       <EyeIcon className="h-4 w-4 mr-1" />
                       Visa
@@ -351,7 +352,7 @@ const AdminQuotes: React.FC = () => {
                     {quote.status === 'DRAFT' && (
                       <button
                         onClick={() => handleSendEmail(quote)}
-                        className="inline-flex items-center px-3 py-1.5 border border-transparent shadow-sm text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700"
+                        className="inline-flex items-center px-2 py-1 sm:px-3 sm:py-1.5 border border-transparent shadow-sm text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700"
                       >
                         <PaperAirplaneIcon className="h-4 w-4 mr-1" />
                         Skicka
@@ -361,7 +362,7 @@ const AdminQuotes: React.FC = () => {
                     {quote.status === 'SENT' && (
                       <button
                         onClick={() => handleAccept(quote.id, quote.quoteNumber)}
-                        className="inline-flex items-center px-3 py-1.5 border border-transparent shadow-sm text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700"
+                        className="inline-flex items-center px-2 py-1 sm:px-3 sm:py-1.5 border border-transparent shadow-sm text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700"
                       >
                         <CheckCircleIcon className="h-4 w-4 mr-1" />
                         Acceptera
@@ -370,7 +371,7 @@ const AdminQuotes: React.FC = () => {
 
                     <button
                       onClick={() => handleDownloadPDF(quote)}
-                      className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
+                      className="inline-flex items-center px-2 py-1 sm:px-3 sm:py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
                     >
                       <DocumentArrowDownIcon className="h-4 w-4 mr-1" />
                       PDF
@@ -379,7 +380,7 @@ const AdminQuotes: React.FC = () => {
                     {quote.status !== 'ACCEPTED' && !quote.projectId && (
                       <button
                         onClick={() => handleDelete(quote.id, quote.quoteNumber)}
-                        className="inline-flex items-center px-3 py-1.5 border border-red-300 shadow-sm text-xs font-medium rounded text-red-700 bg-white hover:bg-red-50"
+                        className="inline-flex items-center px-2 py-1 sm:px-3 sm:py-1.5 border border-red-300 shadow-sm text-xs font-medium rounded text-red-700 bg-white hover:bg-red-50"
                       >
                         <TrashIcon className="h-4 w-4 mr-1" />
                         Ta bort
@@ -389,7 +390,7 @@ const AdminQuotes: React.FC = () => {
                     {quote.projectId && (
                       <Link
                         to={`/admin/projects/${quote.projectId}`}
-                        className="inline-flex items-center px-3 py-1.5 border border-green-300 shadow-sm text-xs font-medium rounded text-green-700 bg-green-50 hover:bg-green-100"
+                        className="inline-flex items-center px-2 py-1 sm:px-3 sm:py-1.5 border border-green-300 shadow-sm text-xs font-medium rounded text-green-700 bg-green-50 hover:bg-green-100"
                       >
                         <FolderPlusIcon className="h-4 w-4 mr-1" />
                         Visa projekt
@@ -404,17 +405,17 @@ const AdminQuotes: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-5 lg:grid-cols-4">
         <div className="bg-white overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
             <dt className="text-sm font-medium text-gray-500 truncate">Totalt offerter</dt>
-            <dd className="mt-1 text-3xl font-semibold text-gray-900">{quotes.length}</dd>
+            <dd className="mt-1 text-xl sm:text-3xl font-semibold text-gray-900">{quotes.length}</dd>
           </div>
         </div>
         <div className="bg-white overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
             <dt className="text-sm font-medium text-gray-500 truncate">Skickade</dt>
-            <dd className="mt-1 text-3xl font-semibold text-blue-600">
+            <dd className="mt-1 text-xl sm:text-3xl font-semibold text-blue-600">
               {quotes.filter((q: Quote) => q.status === 'SENT').length}
             </dd>
           </div>
@@ -422,7 +423,7 @@ const AdminQuotes: React.FC = () => {
         <div className="bg-white overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
             <dt className="text-sm font-medium text-gray-500 truncate">Accepterade</dt>
-            <dd className="mt-1 text-3xl font-semibold text-green-600">
+            <dd className="mt-1 text-xl sm:text-3xl font-semibold text-green-600">
               {quotes.filter((q: Quote) => q.status === 'ACCEPTED').length}
             </dd>
           </div>
@@ -430,7 +431,7 @@ const AdminQuotes: React.FC = () => {
         <div className="bg-white overflow-hidden shadow rounded-lg">
           <div className="px-4 py-5 sm:p-6">
             <dt className="text-sm font-medium text-gray-500 truncate">Totalt värde</dt>
-            <dd className="mt-1 text-3xl font-semibold text-indigo-600">
+            <dd className="mt-1 text-xl sm:text-3xl font-semibold text-indigo-600">
               {formatCurrency(
                 quotes
                   .filter((q: Quote) => q.status === 'ACCEPTED')

@@ -31,6 +31,8 @@ model AppSettings {
   enableTelegram     Boolean @default(false)
   enableAnalytics    Boolean @default(false)
   enableAutomations  Boolean @default(false)
+  enableFortnox      Boolean @default(false)
+  enableCalendar     Boolean @default(true)
 
   // === CUSTOM PRICING (JSON — overrides default pricing.ts) ===
   customPricing    Json?  // { "MALNING": 620, "SNICKERI": 688, ... }
@@ -94,9 +96,19 @@ model User {
   projectTeams     ProjectTeamMember[] @relation("UserProjectTeams")
   assignedTeams    ProjectTeamMember[] @relation("AssignedByUser")
 
+  // === KALENDER ===
+  createdEvents       CalendarEvent[]       @relation("CreatedEvents")
+  eventParticipations CalendarParticipant[]  @relation("EventParticipations")
+
+  // === FORTNOX ===
+  fortnoxEmployeeId String?
+  fortnoxSyncedAt   DateTime?
+
   // === TIDSRAPPORTERING ===
-  timeReports         TimeReport[] @relation("UserTimeReports")
-  approvedTimeReports TimeReport[] @relation("ApprovedByUser")
+  timeReports         TimeReport[]     @relation("UserTimeReports")
+  approvedTimeReports TimeReport[]     @relation("ApprovedByUser")
+  salaryLogs          FortnoxSalaryLog[]
+  lockedPeriods       TimePeriodLock[] @relation("LockedByUser")
 }
 
 model Project {
@@ -105,9 +117,18 @@ model Project {
   title          String
   description    String
   address        String
-  clientName     String
-  clientEmail    String
-  clientPhone    String?
+  clientName           String
+  clientEmail          String
+  clientPhone          String?
+  clientType           String?   // "PRIVATE" or "COMPANY"
+  clientPersonalNumber String?   // Personnummer
+  clientOrgNumber      String?   // Org.nummer
+  propertyAddress      String?   // Fastighetsadress (ROT)
+  housingType          String?   // "VILLA", "BRF", "OTHER"
+  brfName              String?   // BRF-namn
+  brfOrgNumber         String?   // BRF org.nummer
+  fortnoxCustomerId    String?   // Synkad Fortnox-kund
+  billingInfoCollected Boolean   @default(false)
   priority       Priority      @default(NORMAL)
   status         ProjectStatus @default(PENDING)
   estimatedHours Float?
@@ -131,8 +152,13 @@ model Project {
   reports       Report[]
   quote         Quote?              @relation("QuoteToProject", fields: [quoteId], references: [id]) // NY
   archivedBy    User?               @relation("ArchivedProjects", fields: [archivedById], references: [id])
+  // === KUND-KOPPLING (valfritt — bakåtkompatibelt) ===
+  customerId       String?
+  customer         Customer?           @relation("CustomerProjects", fields: [customerId], references: [id])
+
   teamMembers      ProjectTeamMember[] @relation("ProjectTeam")
   timeReportEntries TimeReportEntry[]  @relation("ProjectTimeEntries")
+  calendarEvents   CalendarEvent[]     @relation("ProjectEvents")
 
   @@index([createdById])
   @@index([assignedToId])
@@ -231,10 +257,23 @@ model Quote {
   quoteNumber String @unique // "2025-0001"
 
   // === KUND-INFO ===
-  clientName    String
-  clientEmail   String?
-  clientPhone   String?
-  clientAddress String?
+  clientName           String
+  clientEmail          String?
+  clientPhone          String?
+  clientAddress        String?
+  clientType           String?   // "PRIVATE" or "COMPANY"
+  clientPersonalNumber String?   // Personnummer (för ROT / privatperson)
+  clientOrgNumber      String?   // Organisationsnummer (för företag)
+
+  // === FAKTURERING / ROT ===
+  propertyAddress       String?   // Fastighetsadress (där jobbet utförs)
+  housingType           String?   // "VILLA", "BRF", "OTHER"
+  brfName               String?   // BRF-namn
+  brfOrgNumber          String?   // BRF org.nummer
+  fortnoxCustomerId     String?   // Synkad kund i Fortnox
+  billingInfoCollected  Boolean   @default(false)
+  billingInfoToken      String?   @unique // Token för publikt formulär
+  billingInfoTokenExpiresAt DateTime?
 
   // === AI-OPTIMERAD KATEGORISERING ===
   mainCategory ProjectMainCategory
@@ -309,6 +348,10 @@ model Quote {
   similarityScore Float? // Används vid AI-sökning (0-1)
   confidenceLevel Float? // AI:ns självsäkerhet i estimatet (0-1)
   basedOnQuoteIds String[] // ID:n till liknande offerter som användes
+
+  // === KUND-KOPPLING (valfritt — bakåtkompatibelt) ===
+  customerId String?
+  customer   Customer? @relation("CustomerQuotes", fields: [customerId], references: [id])
 
   // === RELATIONER ===
   lineItems QuoteLineItem[]
@@ -525,6 +568,185 @@ model QuoteTemplate {
 }
 
 // ============================================
+// KUNDREGISTER
+// ============================================
+
+model Customer {
+  id               String   @id @default(uuid())
+  customerNumber   String   @unique @default(cuid()) // "K-0001"
+  name             String
+  email            String?
+  phone            String?
+  address          String?
+
+  // Kundtyp
+  clientType       String?  // "PRIVATE" or "COMPANY"
+  personalNumber   String?  // Personnummer (privat)
+  orgNumber        String?  // Organisationsnummer (företag)
+  contactPerson    String?  // Kontaktperson (företag)
+
+  // ROT/RUT-info
+  propertyAddress  String?
+  housingType      String?  // "VILLA", "BRF", "OTHER"
+  brfName          String?
+  brfOrgNumber     String?
+
+  // Fortnox-synk
+  fortnoxCustomerId String?
+
+  // Anteckningar
+  notes            String?
+
+  // Relationer
+  invoices         Invoice[]
+  quotes           Quote[]         @relation("CustomerQuotes")
+  projects         Project[]       @relation("CustomerProjects")
+
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([name])
+  @@index([email])
+  @@index([customerNumber])
+  @@index([isActive])
+}
+
+// ============================================
+// FAKTURASYSTEM (Fristående)
+// ============================================
+
+model Invoice {
+  id             String        @id @default(uuid())
+  invoiceNumber  String        @unique // "F-2026-0001"
+
+  // Kund (obligatorisk)
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id])
+
+  // Valfri koppling till offert/projekt
+  quoteId        String?
+  projectId      String?
+
+  // Status
+  status         InvoiceStatus @default(DRAFT)
+
+  // Datum
+  invoiceDate    DateTime      @default(now())
+  dueDate        DateTime
+  sentAt         DateTime?
+  paidAt         DateTime?
+
+  // Belopp
+  subtotal       Float         @default(0)
+  vatRate        Float         @default(25)
+  vatAmount      Float         @default(0)
+  rotDeduction   Float         @default(0)
+  rutDeduction   Float         @default(0)
+  totalAmount    Float         @default(0)
+
+  // Typ
+  invoiceType    String        @default("STANDARD") // "STANDARD", "ROT", "RUT"
+
+  // Betalning
+  paymentTerms   Int           @default(30) // Betalningsvillkor i dagar
+  bankgiro       String?
+  plusgiro        String?
+  reference      String?       // Kundens referens
+  ourReference   String?       // Vår referens
+
+  // Anteckningar
+  notes          String?
+  internalNotes  String?
+
+  // Fortnox-synk
+  fortnoxInvoiceNumber String?
+  fortnoxSynced        Boolean @default(false)
+
+  // PDF
+  pdfUrl         String?
+
+  // Skapad av
+  createdById    String
+
+  // Rader
+  lineItems      InvoiceLineItem[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([status])
+  @@index([invoiceDate])
+  @@index([invoiceNumber])
+  @@index([quoteId])
+  @@index([projectId])
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Float
+  unit        String  @default("st") // "st", "tim", "kvm", "meter"
+  unitPrice   Float
+  totalPrice  Float
+  vatRate     Float   @default(25)
+
+  sortOrder   Int     @default(0)
+
+  createdAt   DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+enum InvoiceStatus {
+  DRAFT      // Utkast
+  SENT       // Skickad
+  PAID       // Betald
+  OVERDUE    // Förfallen
+  CANCELLED  // Avbruten
+  CREDITED   // Krediterad
+}
+
+// ============================================
+// FORTNOX FAKTURA-LOGG
+// ============================================
+
+model FortnoxInvoiceLog {
+  id                     String               @id @default(uuid())
+  quoteId                String?
+  projectId              String?
+  fortnoxInvoiceNumber   String?
+  fortnoxCustomerId      String?
+  status                 FortnoxInvoiceStatus @default(PENDING)
+  totalAmount            Float
+  laborCost              Float                @default(0)
+  materialCost           Float                @default(0)
+  rotDeduction           Float                @default(0)
+  invoiceType            String               // "STANDARD", "ROT", "RUT"
+  errorMessage           String?
+  sentAt                 DateTime?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  @@index([quoteId])
+  @@index([projectId])
+  @@index([status])
+}
+
+enum FortnoxInvoiceStatus {
+  PENDING
+  CREATED
+  SENT
+  PAID
+  FAILED
+  CANCELLED
+}
+
+// ============================================
 // ENUMS
 // ============================================
 
@@ -533,6 +755,7 @@ enum Role {
   CONTRACTOR
   CLIENT
   EMPLOYEE
+  ACCOUNTANT
 }
 
 enum Priority {
@@ -750,6 +973,13 @@ enum TimeReportStatus {
   REJECTED
 }
 
+enum FortnoxSalaryStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 model TimeReport {
   id            String           @id @default(uuid())
   userId        String
@@ -768,6 +998,7 @@ model TimeReport {
   user       User              @relation("UserTimeReports", fields: [userId], references: [id])
   approvedBy User?             @relation("ApprovedByUser", fields: [approvedById], references: [id])
   entries    TimeReportEntry[]
+  salaryLogs FortnoxSalaryLog[]
 
   @@unique([userId, weekNumber, year])
   @@index([userId])
@@ -797,6 +1028,20 @@ model TimeReportEntry {
   @@index([timeReportId])
 }
 
+model TimePeriodLock {
+  id        String   @id @default(uuid())
+  year      Int
+  month     Int      // 1-12
+  lockedAt  DateTime @default(now())
+  lockedById String
+  note      String?
+
+  lockedBy  User     @relation("LockedByUser", fields: [lockedById], references: [id])
+
+  @@unique([year, month])
+  @@index([year, month])
+}
+
 model AccountantSettings {
   id          String   @id @default(uuid())
   name        String
@@ -806,4 +1051,136 @@ model AccountantSettings {
   updatedById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ============================================
+// KALENDERSYSTEM
+// ============================================
+
+enum CalendarEventType {
+  MEETING       // Möte
+  SITE_VISIT    // Platsbesök
+  DEADLINE      // Deadline
+  TASK          // Uppgift
+  REMINDER      // Påminnelse
+  BLOCKED       // Blockerad tid
+  OTHER         // Övrigt
+}
+
+enum CalendarEventStatus {
+  CONFIRMED
+  TENTATIVE
+  CANCELLED
+}
+
+enum CalendarRecurrence {
+  NONE
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  YEARLY
+}
+
+model CalendarEvent {
+  id          String              @id @default(uuid())
+  title       String
+  description String?
+  location    String?
+
+  // Tid
+  startTime   DateTime
+  endTime     DateTime
+  allDay      Boolean             @default(false)
+
+  // Typ & status
+  type        CalendarEventType   @default(MEETING)
+  status      CalendarEventStatus @default(CONFIRMED)
+  color       String?             // Valfri hex-färg t.ex. "#2C7A4B"
+
+  // Återkommande
+  recurrence      CalendarRecurrence @default(NONE)
+  recurrenceEndDate DateTime?
+
+  // Relationer
+  createdById String
+  createdBy   User   @relation("CreatedEvents", fields: [createdById], references: [id])
+
+  // Koppling till projekt (valfritt)
+  projectId   String?
+  project     Project? @relation("ProjectEvents", fields: [projectId], references: [id])
+
+  // Deltagare
+  participants CalendarParticipant[]
+
+  // Extern synk
+  externalId  String?  // ID från extern kalender (Google, etc.)
+  icalUid     String?  @unique // Unikt iCal UID för synk
+
+  // Metadata
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+  @@index([startTime])
+  @@index([endTime])
+  @@index([type])
+  @@index([projectId])
+}
+
+model CalendarParticipant {
+  id        String        @id @default(uuid())
+  eventId   String
+  userId    String
+  accepted  Boolean       @default(false)
+  notified  Boolean       @default(false)
+
+  event     CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User          @relation("EventParticipations", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+}
+
+// ============================================
+// FORTNOX INTEGRATION
+// ============================================
+
+model FortnoxSettings {
+  id            String   @id @default("default")
+  clientId      String?
+  clientSecret  String?
+  accessToken   String?
+  refreshToken  String?
+  tokenExpiresAt DateTime?
+  isConnected   Boolean  @default(false)
+  companyName   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model FortnoxSalaryLog {
+  id             String               @id @default(uuid())
+  timeReportId   String
+  userId         String
+  status         FortnoxSalaryStatus  @default(PENDING)
+  totalHours     Float
+  hourlyRate     Float
+  grossPay       Float                @default(0)
+  netPay         Float                @default(0)
+  taxDeduction   Float                @default(0)
+  vacationPay    Float                @default(0)
+  employerFees   Float                @default(0)
+  errorMessage   String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  timeReport     TimeReport           @relation(fields: [timeReportId], references: [id])
+  user           User                 @relation(fields: [userId], references: [id])
+
+  @@index([timeReportId])
+  @@index([userId])
+  @@index([status])
 }

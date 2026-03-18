@@ -1,12 +1,42 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticateToken, requireAdmin, requireRole } from '../middleware/auth';
+import { authenticateToken, requireAdmin, requireAdminOrAccountant, requireRole } from '../middleware/auth';
 import { prisma } from '../lib/prisma';
 import { generateTimeReportPdf } from '../services/timeReportPdfGenerator';
 import { generateTimeReportCsv } from '../services/timeReportCsvGenerator';
 import { sendTimeReportToAccountant } from '../services/timeReportEmailService';
+import { processFortnoxSalary, sendAdminSalarySummary } from '../services/fortnoxSalaryService';
 
 const router = Router();
+
+// Helper: get which month a week belongs to (based on the Thursday of that week)
+function getMonthForWeek(weekNumber: number, year: number, weekStartDate?: Date): { month: number; year: number } {
+  if (weekStartDate) {
+    // Use Thursday of the week to determine which month the week belongs to
+    const thu = new Date(weekStartDate);
+    thu.setDate(thu.getDate() + 3);
+    return { month: thu.getMonth() + 1, year: thu.getFullYear() };
+  }
+  // Fallback: calculate from week number
+  const jan4 = new Date(year, 0, 4);
+  const dayOfWeek = jan4.getDay() || 7;
+  const mondayOfWeek1 = new Date(jan4);
+  mondayOfWeek1.setDate(jan4.getDate() - dayOfWeek + 1);
+  const monday = new Date(mondayOfWeek1);
+  monday.setDate(monday.getDate() + (weekNumber - 1) * 7);
+  const thu = new Date(monday);
+  thu.setDate(thu.getDate() + 3);
+  return { month: thu.getMonth() + 1, year: thu.getFullYear() };
+}
+
+// Helper: check if a period is locked
+async function isPeriodLocked(weekNumber: number, year: number, weekStartDate?: Date): Promise<boolean> {
+  const { month, year: effectiveYear } = getMonthForWeek(weekNumber, year, weekStartDate);
+  const lock = await prisma.timePeriodLock.findUnique({
+    where: { year_month: { year: effectiveYear, month } }
+  });
+  return !!lock;
+}
 
 // Validation schemas
 const timeReportEntrySchema = z.object({
@@ -116,10 +146,16 @@ router.get('/my/:id', authenticateToken, requireRole(['EMPLOYEE']), async (req, 
   }
 });
 
-// POST /api/time-reports - Skapa/spara utkast
+// POST /api/time-reports - Skapa/spara
 router.post('/', authenticateToken, requireRole(['EMPLOYEE']), async (req, res) => {
   try {
     const validatedData = createTimeReportSchema.parse(req.body);
+
+    // Check if period is locked
+    const locked = await isPeriodLocked(validatedData.weekNumber, validatedData.year, new Date(validatedData.weekStartDate));
+    if (locked) {
+      return res.status(403).json({ message: 'Denna period är låst och kan inte redigeras' });
+    }
 
     // Check if report already exists for this week
     const existing = await prisma.timeReport.findUnique({
@@ -178,7 +214,7 @@ router.post('/', authenticateToken, requireRole(['EMPLOYEE']), async (req, res) 
   }
 });
 
-// PUT /api/time-reports/:id - Uppdatera (bara DRAFT/REJECTED)
+// PUT /api/time-reports/:id - Uppdatera
 router.put('/:id', authenticateToken, requireRole(['EMPLOYEE']), async (req, res) => {
   try {
     const report = await prisma.timeReport.findFirst({
@@ -192,10 +228,10 @@ router.put('/:id', authenticateToken, requireRole(['EMPLOYEE']), async (req, res
       return res.status(404).json({ message: 'Tidsrapport hittades inte' });
     }
 
-    if (!['DRAFT', 'REJECTED'].includes(report.status)) {
-      return res.status(400).json({
-        message: 'Kan bara redigera utkast eller avvisade rapporter'
-      });
+    // Check if period is locked
+    const locked = await isPeriodLocked(report.weekNumber, report.year, report.weekStartDate);
+    if (locked) {
+      return res.status(403).json({ message: 'Denna period är låst och kan inte redigeras' });
     }
 
     const validatedData = updateTimeReportSchema.parse(req.body);
@@ -217,8 +253,6 @@ router.put('/:id', authenticateToken, requireRole(['EMPLOYEE']), async (req, res
       where: { id: report.id },
       data: {
         totalHours,
-        status: 'DRAFT',
-        rejectionReason: null,
         entries: {
           create: entries
         }
@@ -285,12 +319,80 @@ router.post('/:id/submit', authenticateToken, requireRole(['EMPLOYEE']), async (
   }
 });
 
+// GET /api/time-reports/locked-periods - Hämta låsta perioder (för alla inloggade)
+router.get('/locked-periods', authenticateToken, async (req, res) => {
+  try {
+    const { year } = req.query;
+    const where: any = {};
+    if (year) where.year = parseInt(year as string);
+
+    const locks = await prisma.timePeriodLock.findMany({
+      where,
+      include: { lockedBy: { select: { name: true } } },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+    });
+
+    res.json(locks);
+  } catch (error) {
+    console.error('Error fetching locked periods:', error);
+    res.status(500).json({ message: 'Kunde inte hämta låsta perioder' });
+  }
+});
+
 // ============================================
 // ADMIN ENDPOINTS
 // ============================================
 
+// POST /api/time-reports/admin/lock-period - Lås en period
+router.post('/admin/lock-period', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { year, month, note } = req.body;
+
+    if (!year || !month || month < 1 || month > 12) {
+      return res.status(400).json({ message: 'Ogiltigt år eller månad' });
+    }
+
+    const existing = await prisma.timePeriodLock.findUnique({
+      where: { year_month: { year, month } }
+    });
+
+    if (existing) {
+      return res.status(400).json({ message: 'Denna period är redan låst' });
+    }
+
+    const lock = await prisma.timePeriodLock.create({
+      data: {
+        year,
+        month,
+        note: note || null,
+        lockedById: req.user!.userId,
+      },
+      include: { lockedBy: { select: { name: true } } },
+    });
+
+    res.status(201).json(lock);
+  } catch (error) {
+    console.error('Error locking period:', error);
+    res.status(500).json({ message: 'Kunde inte låsa perioden' });
+  }
+});
+
+// DELETE /api/time-reports/admin/lock-period/:id - Lås upp en period
+router.delete('/admin/lock-period/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    await prisma.timePeriodLock.delete({
+      where: { id: req.params.id }
+    });
+
+    res.json({ message: 'Perioden är upplåst' });
+  } catch (error) {
+    console.error('Error unlocking period:', error);
+    res.status(500).json({ message: 'Kunde inte låsa upp perioden' });
+  }
+});
+
 // GET /api/time-reports/admin/reporters - Alla som kan tidsrapportera
-router.get('/admin/reporters', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/admin/reporters', authenticateToken, requireAdminOrAccountant, async (req, res) => {
   try {
     const reporters = await prisma.user.findMany({
       where: {
@@ -313,7 +415,7 @@ router.get('/admin/reporters', authenticateToken, requireAdmin, async (req, res)
 });
 
 // GET /api/time-reports/admin - Alla rapporter
-router.get('/admin', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/admin', authenticateToken, requireAdminOrAccountant, async (req, res) => {
   try {
     const { employee, weekNumber, year, status } = req.query;
     const where: any = {};
@@ -344,7 +446,7 @@ router.get('/admin', authenticateToken, requireAdmin, async (req, res) => {
 });
 
 // GET /api/time-reports/admin/summary - Statistik
-router.get('/admin/summary', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/admin/summary', authenticateToken, requireAdminOrAccountant, async (req, res) => {
   try {
     const currentYear = new Date().getFullYear();
 
@@ -381,7 +483,7 @@ router.get('/admin/summary', authenticateToken, requireAdmin, async (req, res) =
 });
 
 // GET /api/time-reports/admin/:id - Visa detalj
-router.get('/admin/:id', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/admin/:id', authenticateToken, requireAdminOrAccountant, async (req, res) => {
   try {
     const report = await prisma.timeReport.findUnique({
       where: { id: req.params.id },
@@ -454,6 +556,93 @@ router.put('/admin/:id', authenticateToken, requireAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Ogiltiga data', errors: error.errors });
     }
     res.status(500).json({ message: 'Kunde inte uppdatera tidsrapport' });
+  }
+});
+
+// POST /api/time-reports/admin/create - Admin skapa rapport åt anställd
+router.post('/admin/create', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const schema = z.object({
+      userId: z.string().uuid(),
+      weekNumber: z.number().int().min(1).max(53),
+      year: z.number().int().min(2020).max(2100),
+      weekStartDate: z.string(),
+      entries: z.array(timeReportEntrySchema).min(1, 'Minst en rad krävs'),
+    });
+    const validatedData = schema.parse(req.body);
+
+    // Check if report already exists for this user/week/year
+    const existing = await prisma.timeReport.findFirst({
+      where: {
+        userId: validatedData.userId,
+        weekNumber: validatedData.weekNumber,
+        year: validatedData.year,
+      }
+    });
+    if (existing) {
+      return res.status(400).json({ message: 'Det finns redan en rapport för denna vecka' });
+    }
+
+    const entries = validatedData.entries.map((entry, idx) => {
+      const totalHours = entry.mondayHours + entry.tuesdayHours + entry.wednesdayHours +
+        entry.thursdayHours + entry.fridayHours + entry.saturdayHours + entry.sundayHours;
+      return { ...entry, totalHours, sortOrder: idx };
+    });
+
+    const totalHours = entries.reduce((sum, e) => sum + e.totalHours, 0);
+
+    const report = await prisma.timeReport.create({
+      data: {
+        userId: validatedData.userId,
+        weekNumber: validatedData.weekNumber,
+        year: validatedData.year,
+        weekStartDate: new Date(validatedData.weekStartDate),
+        totalHours,
+        status: 'SUBMITTED',
+        entries: { create: entries },
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        entries: {
+          orderBy: { sortOrder: 'asc' },
+          include: { project: { select: { id: true, title: true, projectNumber: true } } }
+        },
+      }
+    });
+
+    res.status(201).json(report);
+  } catch (error) {
+    console.error('Error admin creating time report:', error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: 'Ogiltiga data', errors: error.errors });
+    }
+    res.status(500).json({ message: 'Kunde inte skapa tidsrapport' });
+  }
+});
+
+// DELETE /api/time-reports/admin/:id - Admin ta bort rapport
+router.delete('/admin/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const report = await prisma.timeReport.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!report) {
+      return res.status(404).json({ message: 'Tidsrapport hittades inte' });
+    }
+
+    await prisma.timeReportEntry.deleteMany({
+      where: { timeReportId: report.id }
+    });
+
+    await prisma.timeReport.delete({
+      where: { id: report.id }
+    });
+
+    res.json({ message: 'Tidsrapport borttagen' });
+  } catch (error) {
+    console.error('Error admin deleting time report:', error);
+    res.status(500).json({ message: 'Kunde inte ta bort tidsrapport' });
   }
 });
 
@@ -611,9 +800,29 @@ router.post('/admin/:id/send-to-accountant', authenticateToken, requireAdmin, as
       });
     }
 
-    await sendTimeReportToAccountant(accountant, report, attachments);
+    // Run accountant email + Fortnox processing in parallel
+    // Fortnox errors never block the accountant email
+    const results = await Promise.allSettled([
+      sendTimeReportToAccountant(accountant, report, attachments),
+      processFortnoxSalary(report.id)
+        .then(() => sendAdminSalarySummary([report.id]))
+        .catch(err => console.error('[Fortnox] Salary processing error (non-blocking):', err)),
+    ]);
 
-    res.json({ message: `Tidsrapport skickad till ${accountant.email}` });
+    // Check if accountant email succeeded
+    const accountantResult = results[0];
+    if (accountantResult.status === 'rejected') {
+      throw accountantResult.reason;
+    }
+
+    // Build response with Fortnox status
+    const fortnoxResult = results[1];
+    const fortnoxStatus = fortnoxResult.status === 'fulfilled' ? 'ok' : 'error';
+
+    res.json({
+      message: `Tidsrapport skickad till ${accountant.email}`,
+      fortnox: fortnoxStatus,
+    });
   } catch (error) {
     console.error('Error sending to accountant:', error);
     res.status(500).json({ message: 'Kunde inte skicka till revisor' });
@@ -621,7 +830,7 @@ router.post('/admin/:id/send-to-accountant', authenticateToken, requireAdmin, as
 });
 
 // GET /api/time-reports/admin/:id/pdf - Ladda ner PDF
-router.get('/admin/:id/pdf', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/admin/:id/pdf', authenticateToken, requireAdminOrAccountant, async (req, res) => {
   try {
     const report = await prisma.timeReport.findUnique({
       where: { id: req.params.id },
@@ -651,7 +860,7 @@ router.get('/admin/:id/pdf', authenticateToken, requireAdmin, async (req, res) =
 });
 
 // GET /api/time-reports/admin/:id/csv - Ladda ner CSV
-router.get('/admin/:id/csv', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/admin/:id/csv', authenticateToken, requireAdminOrAccountant, async (req, res) => {
   try {
     const report = await prisma.timeReport.findUnique({
       where: { id: req.params.id },

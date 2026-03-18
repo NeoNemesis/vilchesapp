@@ -147,16 +147,16 @@ const N8nAutomationsWidget: React.FC = () => {
   const { n8n, workflows, summary } = data;
 
   return (
-    <div className="bg-white shadow-lg rounded-xl p-6">
+    <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+      <div className="flex items-center justify-between mb-4 sm:mb-6">
+        <div className="flex items-center flex-wrap gap-2">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center">
             <CpuChipIcon className="h-5 w-5 mr-2 text-purple-600" />
-            n8n Automatiseringar
+            Automatiseringar
           </h3>
           {/* n8n Health Badge */}
-          <span className={`ml-3 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
             n8n.status === 'healthy' ? 'bg-green-100 text-green-800' :
             n8n.status === 'unhealthy' ? 'bg-red-100 text-red-800' :
             'bg-yellow-100 text-yellow-800'
@@ -181,22 +181,22 @@ const N8nAutomationsWidget: React.FC = () => {
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
-        <div className="text-center p-3 bg-gray-50 rounded-lg">
-          <div className="text-2xl font-bold text-gray-900">{summary.total}</div>
-          <div className="text-xs text-gray-500">Totalt</div>
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-3 mb-4 sm:mb-6">
+        <div className="text-center p-2 sm:p-3 bg-gray-50 rounded-lg">
+          <div className="text-lg sm:text-2xl font-bold text-gray-900">{summary.total}</div>
+          <div className="text-[10px] sm:text-xs text-gray-500">Totalt</div>
         </div>
-        <div className="text-center p-3 bg-green-50 rounded-lg">
-          <div className="text-2xl font-bold text-green-600">{summary.active}</div>
-          <div className="text-xs text-green-600">Aktiva</div>
+        <div className="text-center p-2 sm:p-3 bg-green-50 rounded-lg">
+          <div className="text-lg sm:text-2xl font-bold text-green-600">{summary.active}</div>
+          <div className="text-[10px] sm:text-xs text-green-600">Aktiva</div>
         </div>
-        <div className="text-center p-3 bg-gray-50 rounded-lg">
-          <div className="text-2xl font-bold text-gray-500">{summary.inactive}</div>
-          <div className="text-xs text-gray-500">Inaktiva</div>
+        <div className="text-center p-2 sm:p-3 bg-gray-50 rounded-lg">
+          <div className="text-lg sm:text-2xl font-bold text-gray-500">{summary.inactive}</div>
+          <div className="text-[10px] sm:text-xs text-gray-500">Inaktiva</div>
         </div>
-        <div className="text-center p-3 bg-red-50 rounded-lg">
-          <div className="text-2xl font-bold text-red-600">{summary.error + summary.unknown}</div>
-          <div className="text-xs text-red-600">Fel/Okänd</div>
+        <div className="text-center p-2 sm:p-3 bg-red-50 rounded-lg">
+          <div className="text-lg sm:text-2xl font-bold text-red-600">{summary.error + summary.unknown}</div>
+          <div className="text-[10px] sm:text-xs text-red-600">Fel</div>
         </div>
       </div>
 

@@ -12,6 +12,7 @@ import {
   XMarkIcon,
   ArrowRightOnRectangleIcon,
   CogIcon,
+  BanknotesIcon,
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -22,6 +23,7 @@ const EmployeeLayout: React.FC = () => {
   const navigation = [
     { name: 'Dashboard', href: '/employee', icon: HomeIcon },
     { name: 'Tidsrapport', href: '/employee/time-report', icon: ClockIcon },
+    { name: 'Min lön', href: '/employee/salary', icon: BanknotesIcon },
     { name: 'Mina projekt', href: '/employee/projects', icon: ClipboardDocumentListIcon },
     { name: 'Kalender', href: '/employee/calendar', icon: CalendarDaysIcon },
     { name: 'Karta', href: '/employee/map', icon: MapIcon },

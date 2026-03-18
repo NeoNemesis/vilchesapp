@@ -31,12 +31,12 @@ export class EmailNotificationService {
         }
       });
 
-      const resetUrl = `${process.env.BASE_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/reset-password?token=${resetToken}`;
+      const resetUrl = `${process.env.BASE_URL || process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
       const mailOptions = {
         from: `"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.SMTP_USER}>`,
         to: userEmail,
-        subject: '🎉 Välkommen till ${process.env.COMPANY_NAME || 'VilchesApp'}',
+        subject: `🎉 Välkommen till ${process.env.COMPANY_NAME || 'VilchesApp'}`,
         html: `
           <!DOCTYPE html>
           <html>
@@ -161,12 +161,12 @@ export class EmailNotificationService {
         }
       });
 
-      const resetUrl = `${process.env.BASE_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/reset-password?token=${resetToken}`;
+      const resetUrl = `${process.env.BASE_URL || process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
       const mailOptions = {
         from: `"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.SMTP_USER}>`,
         to: userEmail,
-        subject: '🔐 Återställ ditt lösenord - ${process.env.COMPANY_NAME || 'VilchesApp'}',
+        subject: `🔐 Återställ ditt lösenord - ${process.env.COMPANY_NAME || 'VilchesApp'}`,
         html: `
           <!DOCTYPE html>
           <html>
@@ -272,7 +272,7 @@ export class EmailNotificationService {
       const mailOptions = {
         from: `"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.SMTP_USER}>`,
         to: userEmail,
-        subject: '✅ Lösenord ändrat - ${process.env.COMPANY_NAME || 'VilchesApp'}',
+        subject: `✅ Lösenord ändrat - ${process.env.COMPANY_NAME || 'VilchesApp'}`,
         html: `
           <!DOCTYPE html>
           <html>
@@ -454,7 +454,7 @@ export class EmailNotificationService {
     reason?: string
   ): Promise<boolean> {
     try {
-      const projectUrl = `${process.env.BASE_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/admin/projects/${project.id}`;
+      const projectUrl = `${process.env.BASE_URL || process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/projects/${project.id}`;
 
       const mailOptions = {
         from: `"${process.env.COMPANY_NAME || 'VilchesApp'}" <${process.env.SMTP_USER}>`,

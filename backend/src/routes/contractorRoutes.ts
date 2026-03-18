@@ -51,7 +51,7 @@ router.get('/', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error fetching contractors:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta entreprenörer',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -96,10 +96,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     // Logga skapande utan känslig information
     console.log(`Ny entreprenör skapad: ${contractor.email}`);
 
-    res.status(201).json({
-      ...contractor,
-      tempPassword // Skicka med temporärt lösenord (i produktion bör detta skickas via e-post)
-    });
+    res.status(201).json(contractor);
   } catch (error) {
     console.error('Error creating contractor:', error);
     
@@ -112,7 +109,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
 
     res.status(500).json({ 
       message: 'Kunde inte skapa entreprenör',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -175,7 +172,7 @@ router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
 
     res.status(500).json({ 
       message: 'Kunde inte uppdatera entreprenör',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -222,7 +219,7 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error deleting contractor:', error);
     res.status(500).json({ 
       message: 'Kunde inte ta bort entreprenör',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -257,13 +254,13 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     console.error('Error fetching contractor stats:', error);
     res.status(500).json({ 
       message: 'Kunde inte hämta statistik',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
 
 // POST /api/contractors/:id/send-welcome - Skicka välkomstmail
-router.post('/:id/send-welcome', async (req, res) => {
+router.post('/:id/send-welcome', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -304,13 +301,13 @@ router.post('/:id/send-welcome', async (req, res) => {
     console.error('Error sending welcome email:', error);
     res.status(500).json({ 
       message: 'Kunde inte skicka välkomstmail',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
 
 // POST /api/contractors/:id/reset-password - Skicka lösenordsbyte-mail
-router.post('/:id/reset-password', async (req, res) => {
+router.post('/:id/reset-password', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -350,7 +347,7 @@ router.post('/:id/reset-password', async (req, res) => {
     console.error('Error sending password reset email:', error);
     res.status(500).json({ 
       message: 'Kunde inte skicka lösenordsbyte-mail',
-      error: error instanceof Error ? error.message : 'Okänt fel'
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -367,13 +364,13 @@ async function sendWelcomeEmail(contractor: any, resetToken: string) {
     },
   });
 
-  const loginUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/contractor`;
-  const resetUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/reset-password?token=${resetToken}`;
+  const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/contractor`;
+  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
   const mailOptions = {
     from: `${process.env.SMTP_FROM_NAME} <${process.env.SMTP_FROM_EMAIL}>`,
     to: contractor.email,
-    subject: 'Välkommen till ${process.env.COMPANY_NAME || 'VilchesApp'} - Skapa ditt lösenord',
+    subject: `Välkommen till ${process.env.COMPANY_NAME || 'VilchesApp'} - Skapa ditt lösenord`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 30px; text-align: center;">
@@ -442,12 +439,12 @@ async function sendPasswordResetEmail(contractor: any, resetToken: string) {
     },
   });
 
-  const resetUrl = `${process.env.FRONTEND_URL || '${process.env.FRONTEND_URL || 'http://localhost:3000'}'}/reset-password?token=${resetToken}`;
+  const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
 
   const mailOptions = {
     from: `${process.env.SMTP_FROM_NAME} <${process.env.SMTP_FROM_EMAIL}>`,
     to: contractor.email,
-    subject: 'Återställ ditt lösenord - ${process.env.COMPANY_NAME || 'VilchesApp'}',
+    subject: `Återställ ditt lösenord - ${process.env.COMPANY_NAME || 'VilchesApp'}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 30px; text-align: center;">

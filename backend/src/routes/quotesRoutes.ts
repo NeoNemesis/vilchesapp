@@ -35,11 +35,13 @@ const quoteUpload = multer({
     files: 10
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
+    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!allowedMimes.includes(file.mimetype) || !allowedExtensions.includes(ext)) {
       cb(new Error('Endast bilder är tillåtna (JPEG, PNG, WebP)'));
+    } else {
+      cb(null, true);
     }
   }
 });
@@ -160,7 +162,7 @@ router.post('/estimate', authenticateToken, async (req: Request, res: Response) 
     return res.status(500).json({
       success: false,
       message: 'Kunde inte generera estimat',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -236,7 +238,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: 'Kunde inte hämta offerter',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -281,7 +283,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: 'Kunde inte hämta offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -464,7 +466,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: 'Kunde inte skapa offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -476,25 +478,76 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const updateData = { ...req.body };
+    const { lineItems, materials, ...updateData } = req.body;
 
     // Ta bort nested relations från update-data
-    delete updateData.lineItems;
-    delete updateData.materials;
     delete updateData.tags;
     delete updateData.project;
+    delete updateData.images;
 
-    const quote = await prisma.quote.update({
-      where: { id },
-      data: updateData,
-      include: {
-        lineItems: true,
-        materials: {
-          include: {
-            material: true,
-          }
+    // Använd transaktion för att uppdatera allt atomiskt
+    const quote = await prisma.$transaction(async (tx) => {
+      // Uppdatera line items om de skickas med
+      if (lineItems !== undefined) {
+        // Ta bort gamla line items
+        await tx.quoteLineItem.deleteMany({ where: { quoteId: id } });
+
+        // Skapa nya line items
+        if (lineItems && lineItems.length > 0) {
+          await tx.quoteLineItem.createMany({
+            data: lineItems.map((item: any) => ({
+              quoteId: id,
+              category: item.category,
+              customCategory: item.customCategory || null,
+              description: item.description,
+              quantity: item.quantity || item.estimatedHours || 0,
+              unit: item.unit || 'tim',
+              unitPrice: item.unitPrice || item.hourlyRate || 0,
+              estimatedHours: item.estimatedHours || item.quantity || 0,
+              hourlyRate: item.hourlyRate || item.unitPrice || 0,
+              totalCost: item.totalCost || 0,
+            }))
+          });
+        }
+      }
+
+      // Uppdatera materials om de skickas med
+      if (materials !== undefined) {
+        // Ta bort gamla materials
+        await tx.quoteMaterial.deleteMany({ where: { quoteId: id } });
+
+        // Skapa nya materials
+        if (materials && materials.length > 0) {
+          await tx.quoteMaterial.createMany({
+            data: materials.map((m: any) => ({
+              quoteId: id,
+              materialId: m.materialId || null,
+              description: m.description,
+              quantity: m.quantity,
+              unit: m.unit,
+              unitPrice: m.unitPrice,
+              totalCost: m.totalCost,
+              supplier: m.supplier || null,
+            }))
+          });
+        }
+      }
+
+      // Uppdatera offerten
+      return tx.quote.update({
+        where: { id },
+        data: updateData,
+        include: {
+          lineItems: true,
+          materials: {
+            include: {
+              material: true,
+            }
+          },
+          images: true,
+          tags: true,
         },
-      },
+      });
     });
 
     return res.json({
@@ -508,7 +561,7 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: 'Kunde inte uppdatera offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -535,7 +588,7 @@ router.delete('/:id', authenticateToken, requireAdmin, async (req: Request, res:
     return res.status(500).json({
       success: false,
       message: 'Kunde inte ta bort offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -624,7 +677,7 @@ router.post('/:id/send', authenticateToken, async (req: Request, res: Response) 
     return res.status(500).json({
       success: false,
       message: 'Kunde inte skicka offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -680,7 +733,7 @@ router.get('/:id/pdf', authenticateToken, async (req: Request, res: Response) =>
     return res.status(500).json({
       success: false,
       message: 'Kunde inte generera PDF',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -751,7 +804,7 @@ router.post('/:id/create-project', authenticateToken, requireAdmin, async (req: 
     return res.status(500).json({
       success: false,
       message: 'Kunde inte skapa projekt',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -813,7 +866,7 @@ router.post('/:id/accept', authenticateToken, async (req: Request, res: Response
     return res.status(500).json({
       success: false,
       message: 'Kunde inte acceptera offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -847,7 +900,7 @@ router.get('/similar', authenticateToken, async (req: Request, res: Response) =>
     return res.status(500).json({
       success: false,
       message: 'Kunde inte hitta liknande offerter',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -893,7 +946,7 @@ router.post('/:id/post-project', authenticateToken, async (req: Request, res: Re
     return res.status(500).json({
       success: false,
       message: 'Kunde inte logga resultat',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -934,7 +987,7 @@ router.get('/materials/list', authenticateToken, async (req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Kunde inte hämta material',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -986,7 +1039,7 @@ router.post('/materials/create', authenticateToken, requireAdmin, async (req: Re
     return res.status(500).json({
       success: false,
       message: 'Kunde inte skapa material',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1016,7 +1069,7 @@ router.put('/materials/:id', authenticateToken, requireAdmin, async (req: Reques
     return res.status(500).json({
       success: false,
       message: 'Kunde inte uppdatera material',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1043,7 +1096,7 @@ router.delete('/materials/:id', authenticateToken, requireAdmin, async (req: Req
     return res.status(500).json({
       success: false,
       message: 'Kunde inte ta bort material',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1081,7 +1134,7 @@ router.get('/templates/list', authenticateToken, async (req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Kunde inte hämta mallar',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1140,7 +1193,7 @@ router.post('/templates/:id/use', authenticateToken, async (req: Request, res: R
     return res.status(500).json({
       success: false,
       message: 'Kunde inte använda mall',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1195,7 +1248,7 @@ router.post('/templates/create', authenticateToken, requireAdmin, async (req: Re
     return res.status(500).json({
       success: false,
       message: 'Kunde inte skapa mall',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1222,7 +1275,7 @@ router.delete('/templates/:id', authenticateToken, requireAdmin, async (req: Req
     return res.status(500).json({
       success: false,
       message: 'Kunde inte ta bort mall',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1282,7 +1335,7 @@ router.get('/public/:id', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: 'Kunde inte hämta offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1352,13 +1405,25 @@ router.post('/public/:id/accept', async (req: Request, res: Response) => {
       console.error('⚠️ Kunde inte skapa projekt automatiskt vid kundacceptans:', projectError.message);
     }
 
+    // Skicka faktureringsförfrågan till kund (non-blocking)
+    try {
+      const { requestBillingInfo } = require('../services/fortnoxInvoiceService');
+      if (quote.clientEmail) {
+        requestBillingInfo(quote.id)
+          .then(() => console.log(`✅ Faktureringsförfrågan skickad till ${quote.clientEmail}`))
+          .catch((err: any) => console.warn('⚠️ Kunde inte skicka faktureringsförfrågan:', err.message));
+      }
+    } catch (billingError: any) {
+      console.warn('⚠️ Billing info request failed (non-blocking):', billingError.message);
+    }
+
     // Skicka till n8n webhook för notifikationer
     const n8nWebhookUrl = process.env.N8N_QUOTE_ACCEPTED_WEBHOOK;
     if (n8nWebhookUrl) {
       try {
         const webhookData = {
           action: 'ACCEPTED',
-          adminEmail: process.env.COMPANY_EMAIL || '${process.env.COMPANY_EMAIL || ''}',
+          adminEmail: process.env.COMPANY_EMAIL || '',
           quoteId: quote.id,
           quoteNumber: quote.quoteNumber,
           clientName: quote.clientName,
@@ -1374,6 +1439,8 @@ router.post('/public/:id/accept', async (req: Request, res: Response) => {
           projectCreated: !!createdProject,
           projectNumber: createdProject?.projectNumber || null,
           projectId: createdProject?.id || null,
+          applyRotDeduction: quote.applyRotDeduction || false,
+          billingInfoRequested: true,
         };
 
         console.log('📤 Skickar till n8n webhook:', n8nWebhookUrl);
@@ -1411,7 +1478,7 @@ router.post('/public/:id/accept', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: 'Kunde inte acceptera offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1452,7 +1519,7 @@ router.post('/public/:id/reject', async (req: Request, res: Response) => {
       try {
         const webhookData = {
           action: 'REJECTED',
-          adminEmail: process.env.COMPANY_EMAIL || '${process.env.COMPANY_EMAIL || ''}',
+          adminEmail: process.env.COMPANY_EMAIL || '',
           quoteId: quote.id,
           quoteNumber: quote.quoteNumber,
           clientName: quote.clientName,
@@ -1500,7 +1567,7 @@ router.post('/public/:id/reject', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: 'Kunde inte neka offert',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1646,7 +1713,7 @@ router.get('/customers/search', authenticateToken, async (req: Request, res: Res
     return res.status(500).json({
       success: false,
       message: 'Kunde inte söka kunder',
-      error: error.message,
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message,
     });
   }
 });
@@ -1709,7 +1776,7 @@ router.post('/:id/images', authenticateToken, quoteUpload.array('images', 10), a
     return res.status(500).json({
       success: false,
       message: 'Kunde inte ladda upp bilder',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1734,7 +1801,7 @@ router.get('/:id/images', authenticateToken, async (req: Request, res: Response)
     return res.status(500).json({
       success: false,
       message: 'Kunde inte hämta bilder',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1760,7 +1827,7 @@ router.put('/images/:imageId', authenticateToken, async (req: Request, res: Resp
     return res.status(500).json({
       success: false,
       message: 'Kunde inte uppdatera bild',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });
@@ -1796,7 +1863,7 @@ router.delete('/images/:imageId', authenticateToken, async (req: Request, res: R
     return res.status(500).json({
       success: false,
       message: 'Kunde inte ta bort bild',
-      error: error.message
+      error: process.env.NODE_ENV === 'production' ? 'Ett internt fel uppstod' : (error as Error).message
     });
   }
 });

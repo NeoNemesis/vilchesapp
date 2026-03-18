@@ -82,14 +82,15 @@ router.post('/login',
         }
       );
 
-      // Skapa refresh token
+      // Skapa refresh token with separate secret
+      const refreshTokenSecret = process.env.REFRESH_TOKEN_SECRET || (process.env.JWT_SECRET! + '_refresh');
       const refreshToken = jwt.sign(
-        { 
+        {
           userId: user.id,
           type: 'refresh'
         },
-        process.env.JWT_SECRET!,
-        { 
+        refreshTokenSecret,
+        {
           expiresIn: '7d',
           issuer: 'vilches-app',
           audience: 'vilches-users'
@@ -110,24 +111,26 @@ router.post('/login',
       const { password: _, ...userWithoutPassword } = user;
 
       // Sätt säkra cookies för tokens
-      res.cookie('accessToken', accessToken, {
+      const cookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const,
+        ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
+      };
+
+      res.cookie('accessToken', accessToken, {
+        ...cookieOptions,
         maxAge: 15 * 60 * 1000 // 15 minuter
       });
 
       res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        ...cookieOptions,
         maxAge: 7 * 24 * 60 * 60 * 1000 // 7 dagar
       });
 
       res.json({
         success: true,
         message: 'Inloggning lyckades',
-        token: accessToken, // Även i response för kompatibilitet
         user: userWithoutPassword
       });
 
@@ -155,8 +158,9 @@ router.post('/refresh', async (req, res) => {
       });
     }
 
-    // Verifiera refresh token
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET!) as any;
+    // Verifiera refresh token with separate secret
+    const refreshTokenSecret = process.env.REFRESH_TOKEN_SECRET || (process.env.JWT_SECRET! + '_refresh');
+    const decoded = jwt.verify(refreshToken, refreshTokenSecret) as any;
     
     if (decoded.type !== 'refresh') {
       return res.status(401).json({
@@ -204,10 +208,15 @@ router.post('/refresh', async (req, res) => {
     );
 
     // Sätt ny cookie
-    res.cookie('accessToken', newAccessToken, {
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const,
+      ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
+    };
+
+    res.cookie('accessToken', newAccessToken, {
+      ...cookieOptions,
       maxAge: 15 * 60 * 1000 // 15 minuter
     });
 
@@ -215,7 +224,6 @@ router.post('/refresh', async (req, res) => {
 
     res.json({
       success: true,
-      token: newAccessToken,
       user: user
     });
 
@@ -268,9 +276,14 @@ router.get('/me', authenticateToken, async (req, res) => {
 
 // Logout endpoint (clears cookies)
 router.post('/logout', authenticateToken, (req, res) => {
-  // Clear cookies
-  res.clearCookie('accessToken');
-  res.clearCookie('refreshToken');
+  const clearOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const,
+    ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
+  };
+  res.clearCookie('accessToken', clearOptions);
+  res.clearCookie('refreshToken', clearOptions);
   
   res.json({
     success: true,

@@ -5,9 +5,7 @@ import {
   ChevronRightIcon,
   PlusIcon,
   TrashIcon,
-  PaperAirplaneIcon,
-  DocumentIcon,
-  ExclamationTriangleIcon,
+  LockClosedIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { api } from '../../services/api';
@@ -57,17 +55,11 @@ interface EntryRow {
 }
 
 const statusColors: Record<string, string> = {
-  DRAFT: 'bg-gray-100 text-gray-800',
-  SUBMITTED: 'bg-blue-100 text-blue-800',
-  APPROVED: 'bg-green-100 text-green-800',
-  REJECTED: 'bg-red-100 text-red-800',
+  DRAFT: 'bg-green-100 text-green-800',
 };
 
 const statusLabels: Record<string, string> = {
-  DRAFT: 'Utkast',
-  SUBMITTED: 'Inskickad',
-  APPROVED: 'Godkänd',
-  REJECTED: 'Avvisad',
+  DRAFT: 'Sparad',
 };
 
 function createEmptyRow(): EntryRow {
@@ -127,6 +119,12 @@ const TimeReportPage: React.FC = () => {
     queryFn: () => api.getMyProjects_Employee(),
   });
 
+  // Fetch locked periods
+  const { data: lockedPeriods = [] } = useQuery<{ id: string; year: number; month: number }[]>({
+    queryKey: ['locked-periods', year],
+    queryFn: () => api.getLockedPeriods(year),
+  });
+
   // Load existing report for current week
   useEffect(() => {
     const existing = reports.find(r => r.weekNumber === weekNumber && r.year === year);
@@ -156,7 +154,16 @@ const TimeReportPage: React.FC = () => {
     }
   }, [reports, weekNumber, year]);
 
-  const isEditable = !existingStatus || existingStatus === 'DRAFT' || existingStatus === 'REJECTED';
+  // Check if period is locked (use Thursday of the week to determine month)
+  const isLocked = useMemo(() => {
+    const thu = new Date(weekStart);
+    thu.setDate(thu.getDate() + 3);
+    const weekMonth = thu.getMonth() + 1;
+    const weekYear = thu.getFullYear();
+    return lockedPeriods.some(lp => lp.year === weekYear && lp.month === weekMonth);
+  }, [weekStart, lockedPeriods]);
+
+  const isEditable = !isLocked;
 
   // Day totals
   const dayTotals = useMemo(() => {
@@ -209,28 +216,6 @@ const TimeReportPage: React.FC = () => {
     },
   });
 
-  const submitMutation = useMutation({
-    mutationFn: async () => {
-      let reportId = existingReportId;
-      const entries = buildEntries();
-      if (entries.length === 0) throw new Error('Lägg till minst en aktivitet');
-
-      if (!reportId) {
-        const created = await api.createTimeReport({ weekNumber, year, weekStartDate: weekStart.toISOString(), entries });
-        reportId = created.id;
-      } else if (existingStatus === 'DRAFT' || existingStatus === 'REJECTED') {
-        await api.updateTimeReport(reportId, { entries });
-      }
-      return api.submitTimeReport(reportId!);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['my-time-reports'] });
-      toast.success('Tidsrapport inskickad!');
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.message || error.message || 'Kunde inte skicka in');
-    },
-  });
 
   // Navigation
   const goToPreviousWeek = () => {
@@ -268,11 +253,6 @@ const TimeReportPage: React.FC = () => {
       hours[dayIndex] = clamped;
       return { ...r, hours };
     }));
-  };
-
-  const handleSubmit = () => {
-    if (!confirm('Är du säker på att du vill skicka in tidsrapporten? Du kan inte redigera den efteråt.')) return;
-    submitMutation.mutate();
   };
 
   // Selected day date
@@ -322,14 +302,14 @@ const TimeReportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Rejection reason */}
-      {existingStatus === 'REJECTED' && rejectionReason && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+      {/* Locked period notice */}
+      {isLocked && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
           <div className="flex items-start gap-2">
-            <ExclamationTriangleIcon className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
+            <LockClosedIcon className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium text-red-800">Avvisad</p>
-              <p className="text-xs text-red-700 mt-0.5">{rejectionReason}</p>
+              <p className="text-sm font-medium text-amber-800">Perioden är låst</p>
+              <p className="text-xs text-amber-700 mt-0.5">Denna period har låsts av admin och kan inte redigeras.</p>
             </div>
           </div>
         </div>
@@ -488,37 +468,17 @@ const TimeReportPage: React.FC = () => {
 
       {/* Actions */}
       {isEditable && (
-        <div className="flex gap-3 mb-6">
+        <div className="mb-6">
           <button
             onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending || submitMutation.isPending}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+            disabled={saveMutation.isPending}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
-            <DocumentIcon className="h-4 w-4" />
-            {saveMutation.isPending ? 'Sparar...' : 'Spara utkast'}
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saveMutation.isPending || submitMutation.isPending}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            <PaperAirplaneIcon className="h-4 w-4" />
-            {submitMutation.isPending ? 'Skickar...' : 'Skicka in'}
+            {saveMutation.isPending ? 'Sparar...' : 'Spara'}
           </button>
         </div>
       )}
 
-      {/* Read-only status messages */}
-      {existingStatus === 'SUBMITTED' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800 mb-6">
-          Rapporten är inskickad och väntar på godkännande.
-        </div>
-      )}
-      {existingStatus === 'APPROVED' && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800 mb-6">
-          Rapporten är godkänd.
-        </div>
-      )}
     </div>
   );
 };

@@ -9,6 +9,8 @@ import {
   DocumentArrowDownIcon,
   PaperAirplaneIcon,
   FunnelIcon,
+  LockClosedIcon,
+  LockOpenIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { api } from '../../services/api';
@@ -28,6 +30,8 @@ const statusLabels: Record<string, string> = {
   REJECTED: 'Avvisad',
 };
 
+const MONTH_NAMES = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December'];
+
 const AdminTimeReports: React.FC = () => {
   const queryClient = useQueryClient();
   const currentYear = new Date().getFullYear();
@@ -37,6 +41,7 @@ const AdminTimeReports: React.FC = () => {
     status: '',
   });
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showLockPanel, setShowLockPanel] = useState(false);
 
   const { data: reports = [], isLoading } = useQuery<TimeReport[]>({
     queryKey: ['admin-time-reports', filters],
@@ -55,6 +60,31 @@ const AdminTimeReports: React.FC = () => {
   const { data: summary } = useQuery({
     queryKey: ['time-report-summary'],
     queryFn: api.getTimeReportSummary,
+  });
+
+  const filterYear = filters.year ? parseInt(filters.year) : currentYear;
+
+  const { data: lockedPeriods = [] } = useQuery<{ id: string; year: number; month: number; lockedAt: string; lockedBy?: { name: string }; note?: string }[]>({
+    queryKey: ['locked-periods', filterYear],
+    queryFn: () => api.getLockedPeriods(filterYear),
+  });
+
+  const lockMutation = useMutation({
+    mutationFn: (data: { year: number; month: number }) => api.lockPeriod(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['locked-periods'] });
+      toast.success('Period låst');
+    },
+    onError: (error: any) => toast.error(error.response?.data?.message || 'Kunde inte låsa perioden'),
+  });
+
+  const unlockMutation = useMutation({
+    mutationFn: (id: string) => api.unlockPeriod(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['locked-periods'] });
+      toast.success('Period upplåst');
+    },
+    onError: (error: any) => toast.error(error.response?.data?.message || 'Kunde inte låsa upp perioden'),
   });
 
   const approveMutation = useMutation({
@@ -164,37 +194,37 @@ const AdminTimeReports: React.FC = () => {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Tidsrapporter</h1>
+      <div className="mb-4 sm:mb-8">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Tidsrapporter</h1>
         <p className="mt-1 text-sm text-gray-500">Granska och godkänn tidsrapporter från anställda</p>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-6 mb-8">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-6">
           <div className="flex items-center">
-            <ClockIcon className="h-8 w-8 text-orange-600" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Väntande</p>
-              <p className="text-2xl font-semibold text-gray-900">{summary?.pending || 0}</p>
+            <ClockIcon className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600" />
+            <div className="ml-2 sm:ml-4">
+              <p className="text-sm font-medium text-gray-500 truncate">Väntande</p>
+              <p className="text-lg sm:text-2xl font-semibold text-gray-900">{summary?.pending || 0}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-6">
           <div className="flex items-center">
-            <CheckCircleIcon className="h-8 w-8 text-green-600" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Godkända denna månad</p>
-              <p className="text-2xl font-semibold text-gray-900">{summary?.approvedThisMonth || 0}</p>
+            <CheckCircleIcon className="h-5 w-5 sm:h-8 sm:w-8 text-green-600" />
+            <div className="ml-2 sm:ml-4">
+              <p className="text-sm font-medium text-gray-500 truncate">Godkända denna månad</p>
+              <p className="text-lg sm:text-2xl font-semibold text-gray-900">{summary?.approvedThisMonth || 0}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-6">
           <div className="flex items-center">
-            <ClockIcon className="h-8 w-8 text-blue-600" />
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Totala timmar i år</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <ClockIcon className="h-5 w-5 sm:h-8 sm:w-8 text-blue-600" />
+            <div className="ml-2 sm:ml-4">
+              <p className="text-sm font-medium text-gray-500 truncate">Totala timmar i år</p>
+              <p className="text-lg sm:text-2xl font-semibold text-gray-900">
                 {(summary?.totalHoursThisMonth || 0).toFixed(0)}h
               </p>
             </div>
@@ -202,13 +232,75 @@ const AdminTimeReports: React.FC = () => {
         </div>
       </div>
 
+      {/* Period Lock Toggle */}
+      <div className="mb-6">
+        <button
+          onClick={() => setShowLockPanel(!showLockPanel)}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          <LockClosedIcon className="h-4 w-4" />
+          Periodlåsning
+        </button>
+      </div>
+
+      {/* Period Lock Panel */}
+      {showLockPanel && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-4">Periodlåsning – {filterYear}</h3>
+          <p className="text-xs text-gray-500 mb-4">Lås perioder för att förhindra att anställda redigerar sina tidsrapporter. Du som admin kan alltid redigera oavsett lås.</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {MONTH_NAMES.map((name, i) => {
+              const month = i + 1;
+              const lock = lockedPeriods.find(lp => lp.month === month && lp.year === filterYear);
+              const isLocked = !!lock;
+
+              return (
+                <div key={month} className={`rounded-lg border p-3 ${isLocked ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-900">{name}</span>
+                    {isLocked ? (
+                      <LockClosedIcon className="h-4 w-4 text-red-500" />
+                    ) : (
+                      <LockOpenIcon className="h-4 w-4 text-gray-300" />
+                    )}
+                  </div>
+                  {isLocked ? (
+                    <button
+                      onClick={() => {
+                        if (confirm(`Vill du låsa upp ${name} ${filterYear}?`)) {
+                          unlockMutation.mutate(lock.id);
+                        }
+                      }}
+                      className="w-full mt-2 px-2 py-1.5 text-xs font-medium bg-white border border-red-300 text-red-700 rounded hover:bg-red-50 transition-colors"
+                    >
+                      Lås upp
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (confirm(`Vill du låsa ${name} ${filterYear}? Anställda kan inte redigera tider för denna period.`)) {
+                          lockMutation.mutate({ year: filterYear, month });
+                        }
+                      }}
+                      className="w-full mt-2 px-2 py-1.5 text-xs font-medium bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+                    >
+                      Lås
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <FunnelIcon className="h-5 w-5 text-gray-400" />
           <span className="text-sm font-medium text-gray-700">Filter</span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <select value={filters.employee} onChange={e => setFilters({ ...filters, employee: e.target.value })} className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
             <option value="">Alla anställda</option>
             {reporters.map((emp) => (
@@ -257,10 +349,10 @@ const AdminTimeReports: React.FC = () => {
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Anställd</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vecka</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
+                <th className="hidden sm:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Timmar</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Inskickad</th>
+                <th className="hidden sm:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Inskickad</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Åtgärder</th>
               </tr>
             </thead>
@@ -286,7 +378,7 @@ const AdminTimeReports: React.FC = () => {
                     <td className="px-4 py-3">
                       <span className="text-sm text-gray-900">v{report.weekNumber}, {report.year}</span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="hidden sm:table-cell px-4 py-3">
                       <span className="text-sm text-gray-500">{formatWeekPeriod(report)}</span>
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -297,7 +389,7 @@ const AdminTimeReports: React.FC = () => {
                         {statusLabels[report.status]}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="hidden sm:table-cell px-4 py-3">
                       <span className="text-sm text-gray-500">
                         {report.submittedAt ? new Date(report.submittedAt).toLocaleDateString('sv-SE') : '-'}
                       </span>

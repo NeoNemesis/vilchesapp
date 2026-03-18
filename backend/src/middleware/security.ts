@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma';
 // Enhanced rate limiting
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minuter
-  max: 100, // Max 100 requests per IP per 15 min
+  max: 500, // Max 500 requests per IP per 15 min (SPA gör många API-anrop)
   message: {
     success: false,
     message: 'För många förfrågningar från denna IP. Försök igen senare.'
@@ -17,7 +17,7 @@ export const generalLimiter = rateLimit({
 
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minuter
-  max: 5, // Max 5 inloggningsförsök per IP per 15 min
+  max: 15, // Max 15 inloggningsförsök per IP per 15 min (flera användare kan dela IP)
   message: {
     success: false,
     message: 'För många inloggningsförsök. Försök igen om 15 minuter.'
@@ -123,13 +123,13 @@ export function bruteForceProtection(req: Request, res: Response, next: NextFunc
     }
     
     // För många försök inom kort tid
-    if (attempt.attempts >= 5 && (now.getTime() - attempt.lastAttempt.getTime()) < 15 * 60 * 1000) {
+    if (attempt.attempts >= 10 && (now.getTime() - attempt.lastAttempt.getTime()) < 15 * 60 * 1000) {
       attempt.blocked = true;
-      attempt.blockExpires = new Date(now.getTime() + 30 * 60 * 1000); // 30 min block
-      
+      attempt.blockExpires = new Date(now.getTime() + 15 * 60 * 1000); // 15 min block
+
       return res.status(429).json({
         success: false,
-        message: 'För många misslyckade inloggningsförsök. Konto blockerat i 30 minuter.'
+        message: 'För många misslyckade inloggningsförsök. Försök igen om 15 minuter.'
       });
     }
   }

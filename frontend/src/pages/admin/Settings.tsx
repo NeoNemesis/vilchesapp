@@ -9,6 +9,7 @@ import {
   ExclamationCircleIcon,
   CalculatorIcon,
   SwatchIcon,
+  CogIcon,
 } from '@heroicons/react/24/outline';
 import ThemeSelector from '../../components/settings/ThemeSelector';
 
@@ -26,7 +27,7 @@ const Settings: React.FC = () => {
   const { user: authUser, updateUser } = useAuth();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'profile' | 'email' | 'password' | 'accountant' | 'appearance'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'email' | 'password' | 'accountant' | 'fortnox' | 'appearance'>('profile');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Accountant form
@@ -38,59 +39,43 @@ const Settings: React.FC = () => {
   });
   const [accountantLoading, setAccountantLoading] = useState(false);
 
+  // Fortnox state
+  const [fortnoxStatus, setFortnoxStatus] = useState<{
+    enabled: boolean;
+    isConnected: boolean;
+    companyName: string | null;
+    hasCredentials: boolean;
+  }>({ enabled: false, isConnected: false, companyName: null, hasCredentials: false });
+  const [fortnoxCredentials, setFortnoxCredentials] = useState({ clientId: '', clientSecret: '' });
+  const [fortnoxLoading, setFortnoxLoading] = useState(false);
+  const [fortnoxLogs, setFortnoxLogs] = useState<any[]>([]);
+
   // Profile form
-  const [profileForm, setProfileForm] = useState({
-    name: '',
-    phone: '',
-    company: '',
-  });
-
-  // Email form
-  const [emailForm, setEmailForm] = useState({
-    newEmail: '',
-    currentPassword: '',
-  });
-
-  // Password form
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  });
-
+  const [profileForm, setProfileForm] = useState({ name: '', phone: '', company: '' });
+  const [emailForm, setEmailForm] = useState({ newEmail: '', currentPassword: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [formLoading, setFormLoading] = useState(false);
 
   useEffect(() => {
     loadUserProfile();
     loadAccountantSettings();
+    loadFortnoxSettings();
   }, []);
 
   const loadUserProfile = async () => {
     try {
       const response = await api.get('/auth/me');
-
-      // Kontrollera om response direkt innehåller success och user
       let responseData = response.data || response;
-      
       if (responseData && responseData.success) {
         const userData = responseData.user;
         setUser(userData);
-        setProfileForm({
-          name: userData.name || '',
-          phone: userData.phone || '',
-          company: userData.company || '',
-        });
-        setEmailForm({
-          newEmail: userData.email || '',
-          currentPassword: '',
-        });
+        setProfileForm({ name: userData.name || '', phone: userData.phone || '', company: userData.company || '' });
+        setEmailForm({ newEmail: userData.email || '', currentPassword: '' });
       } else {
-        console.error('Invalid response format:', response);
         showMessage('error', 'Ogiltig autentisering - omdirigerar till login');
         setTimeout(() => window.location.href = '/login', 2000);
       }
     } catch (error) {
-      console.error('Failed to load user profile:', error);
       showMessage('error', 'Kunde inte ladda profilinformation - kontrollera inloggning');
       setTimeout(() => window.location.href = '/login', 2000);
     } finally {
@@ -102,16 +87,9 @@ const Settings: React.FC = () => {
     try {
       const data = await api.getAccountantSettings();
       if (data) {
-        setAccountantForm({
-          name: data.name || '',
-          email: data.email || '',
-          company: data.company || '',
-          phone: data.phone || '',
-        });
+        setAccountantForm({ name: data.name || '', email: data.email || '', company: data.company || '', phone: data.phone || '' });
       }
-    } catch (error) {
-      // Settings may not exist yet, that's fine
-    }
+    } catch (error) { /* Settings may not exist yet */ }
   };
 
   const handleAccountantSave = async (e: React.FormEvent) => {
@@ -139,6 +117,73 @@ const Settings: React.FC = () => {
     }
   };
 
+  const loadFortnoxSettings = async () => {
+    try {
+      const data = await api.getFortnoxSettings();
+      setFortnoxStatus(data);
+      if (data.isConnected) loadFortnoxLogs();
+    } catch (error) { /* Fortnox settings may not exist yet */ }
+  };
+
+  const loadFortnoxLogs = async () => {
+    try { const logs = await api.getFortnoxSalaryLogs(20); setFortnoxLogs(logs); } catch (error) { /* Non-critical */ }
+  };
+
+  const handleFortnoxSaveCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFortnoxLoading(true);
+    try {
+      await api.saveFortnoxCredentials(fortnoxCredentials);
+      showMessage('success', 'Fortnox-uppgifter sparade');
+      loadFortnoxSettings();
+    } catch (error: any) {
+      showMessage('error', error.response?.data?.error || 'Kunde inte spara');
+    } finally { setFortnoxLoading(false); }
+  };
+
+  const handleFortnoxConnect = async () => {
+    setFortnoxLoading(true);
+    try { const data = await api.getFortnoxAuthUrl(); window.location.href = data.url; }
+    catch (error: any) { showMessage('error', error.response?.data?.error || 'Kunde inte generera auktoriserings-URL'); setFortnoxLoading(false); }
+  };
+
+  const handleFortnoxDisconnect = async () => {
+    if (!confirm('Vill du koppla fran Fortnox?')) return;
+    setFortnoxLoading(true);
+    try { await api.disconnectFortnox(); showMessage('success', 'Fortnox frakopplad'); loadFortnoxSettings(); }
+    catch (error: any) { showMessage('error', error.response?.data?.error || 'Kunde inte koppla fran'); }
+    finally { setFortnoxLoading(false); }
+  };
+
+  const handleFortnoxTest = async () => {
+    setFortnoxLoading(true);
+    try { const data = await api.testFortnoxConnection(); showMessage('success', data.message); }
+    catch (error: any) { showMessage('error', error.response?.data?.error || 'Anslutningstest misslyckades'); }
+    finally { setFortnoxLoading(false); }
+  };
+
+  const handleFortnoxSyncEmployees = async () => {
+    setFortnoxLoading(true);
+    try { const data = await api.syncFortnoxEmployees(); showMessage('success', data.message); }
+    catch (error: any) { showMessage('error', error.response?.data?.error || 'Synkning misslyckades'); }
+    finally { setFortnoxLoading(false); }
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fortnoxResult = params.get('fortnox');
+    if (fortnoxResult === 'success') {
+      showMessage('success', 'Fortnox ansluten!');
+      setActiveTab('fortnox');
+      loadFortnoxSettings();
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (fortnoxResult === 'error') {
+      showMessage('error', `Fortnox: ${params.get('message') || 'Anslutning misslyckades'}`);
+      setActiveTab('fortnox');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 5000);
@@ -147,76 +192,32 @@ const Settings: React.FC = () => {
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormLoading(true);
-
     try {
       const response = await api.put('/auth/profile', profileForm);
-      if (response.data.success) {
-        setUser(response.data.user);
-        updateUser(response.data.user);
-        showMessage('success', 'Profil uppdaterad framgångsrikt');
-      }
-    } catch (error: any) {
-      console.error('Profile update failed:', error);
-      const errorMessage = error.response?.data?.message || 'Kunde inte uppdatera profil';
-      showMessage('error', errorMessage);
-    } finally {
-      setFormLoading(false);
-    }
+      if (response.data.success) { setUser(response.data.user); updateUser(response.data.user); showMessage('success', 'Profil uppdaterad'); }
+    } catch (error: any) { showMessage('error', error.response?.data?.message || 'Kunde inte uppdatera profil'); }
+    finally { setFormLoading(false); }
   };
 
   const handleEmailUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormLoading(true);
-
     try {
       const response = await api.put('/auth/email', emailForm);
-      if (response.data.success) {
-        setUser(response.data.user);
-        updateUser(response.data.user);
-        setEmailForm({ ...emailForm, currentPassword: '' });
-        showMessage('success', 'Email-adress uppdaterad framgångsrikt');
-      }
-    } catch (error: any) {
-      console.error('Email update failed:', error);
-      const errorMessage = error.response?.data?.message || 'Kunde inte uppdatera email';
-      showMessage('error', errorMessage);
-    } finally {
-      setFormLoading(false);
-    }
+      if (response.data.success) { setUser(response.data.user); updateUser(response.data.user); setEmailForm({ ...emailForm, currentPassword: '' }); showMessage('success', 'Email uppdaterad'); }
+    } catch (error: any) { showMessage('error', error.response?.data?.message || 'Kunde inte uppdatera email'); }
+    finally { setFormLoading(false); }
   };
 
   const handlePasswordUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      showMessage('error', 'Lösenorden matchar inte');
-      return;
-    }
-
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) { showMessage('error', 'Lösenorden matchar inte'); return; }
     setFormLoading(true);
-
     try {
-      const response = await api.put('/auth/password', {
-        currentPassword: passwordForm.currentPassword,
-        newPassword: passwordForm.newPassword,
-        confirmPassword: passwordForm.confirmPassword,
-      });
-      
-      if (response.data.success) {
-        setPasswordForm({
-          currentPassword: '',
-          newPassword: '',
-          confirmPassword: '',
-        });
-        showMessage('success', 'Lösenord uppdaterat framgångsrikt');
-      }
-    } catch (error: any) {
-      console.error('Password update failed:', error);
-      const errorMessage = error.response?.data?.message || 'Kunde inte uppdatera lösenord';
-      showMessage('error', errorMessage);
-    } finally {
-      setFormLoading(false);
-    }
+      const response = await api.put('/auth/password', passwordForm);
+      if (response.data.success) { setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); showMessage('success', 'Lösenord uppdaterat'); }
+    } catch (error: any) { showMessage('error', error.response?.data?.message || 'Kunde inte uppdatera lösenord'); }
+    finally { setFormLoading(false); }
   };
 
   if (loading) {
@@ -232,106 +233,69 @@ const Settings: React.FC = () => {
     { id: 'email', name: 'Email', icon: EnvelopeIcon },
     { id: 'password', name: 'Lösenord', icon: KeyIcon },
     { id: 'accountant', name: 'Revisor', icon: CalculatorIcon },
+    { id: 'fortnox', name: 'Fortnox', icon: CogIcon },
     { id: 'appearance', name: 'Utseende', icon: SwatchIcon },
   ];
 
+  const inputClass = "mt-1 block w-full border border-gray-300 rounded-lg shadow-sm px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
+  const btnPrimary = "w-full sm:w-auto bg-blue-600 text-white px-5 py-2.5 rounded-lg hover:bg-blue-700 active:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 text-sm font-medium transition-colors";
+  const btnSecondary = "w-full sm:w-auto bg-white border border-gray-300 text-gray-700 px-5 py-2.5 rounded-lg hover:bg-gray-50 active:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 text-sm font-medium transition-colors";
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto px-2 sm:px-0">
       <div className="bg-white shadow rounded-lg">
-        <div className="px-4 py-5 sm:p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">Inställningar</h1>
+        <div className="px-3 py-4 sm:p-6">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 sm:mb-6">Inställningar</h1>
 
           {/* Message */}
           {message && (
-            <div className={`mb-6 p-4 rounded-md ${
-              message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
-            }`}>
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  {message.type === 'success' ? (
-                    <CheckCircleIcon className="h-5 w-5" />
-                  ) : (
-                    <ExclamationCircleIcon className="h-5 w-5" />
-                  )}
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium">{message.text}</p>
-                </div>
+            <div className={`mb-4 p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+              <div className="flex items-center">
+                {message.type === 'success' ? <CheckCircleIcon className="h-5 w-5 flex-shrink-0" /> : <ExclamationCircleIcon className="h-5 w-5 flex-shrink-0" />}
+                <p className="ml-2 font-medium">{message.text}</p>
               </div>
             </div>
           )}
 
-          {/* Tabs */}
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
+          {/* Tabs - scrollbar på mobil, wrappade på surfplatta */}
+          <div className="border-b border-gray-200 -mx-3 px-3 sm:mx-0 sm:px-0">
+            <nav className="-mb-px flex overflow-x-auto scrollbar-hide gap-1 sm:gap-0 sm:space-x-3 md:space-x-6">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
+                  className={`flex items-center whitespace-nowrap py-2.5 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm transition-colors flex-shrink-0 ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  <tab.icon className="h-5 w-5 mr-2" />
-                  {tab.name}
+                  <tab.icon className="h-5 w-5 sm:mr-1.5" />
+                  <span className="hidden sm:inline">{tab.name}</span>
                 </button>
               ))}
             </nav>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-5 sm:mt-6">
             {/* Profile Tab */}
             {activeTab === 'profile' && (
               <form onSubmit={handleProfileUpdate}>
-                <div className="space-y-6">
+                <div className="space-y-4 sm:space-y-5">
                   <div>
-                    <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                      Namn
-                    </label>
-                    <input
-                      type="text"
-                      id="name"
-                      value={profileForm.name}
-                      onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Namn</label>
+                    <input type="text" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className={inputClass} />
                   </div>
-
                   <div>
-                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                      Telefonnummer
-                    </label>
-                    <input
-                      type="tel"
-                      id="phone"
-                      value={profileForm.phone}
-                      onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      placeholder="+46 70 123 45 67"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Telefonnummer</label>
+                    <input type="tel" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} className={inputClass} placeholder="+46 70 123 45 67" />
                   </div>
-
                   <div>
-                    <label htmlFor="company" className="block text-sm font-medium text-gray-700">
-                      Företag
-                    </label>
-                    <input
-                      type="text"
-                      id="company"
-                      value={profileForm.company}
-                      onChange={(e) => setProfileForm({ ...profileForm, company: e.target.value })}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Företag</label>
+                    <input type="text" value={profileForm.company} onChange={(e) => setProfileForm({ ...profileForm, company: e.target.value })} className={inputClass} />
                   </div>
-
-                  <div className="pt-4">
-                    <button
-                      type="submit"
-                      disabled={formLoading}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-                    >
+                  <div className="pt-2">
+                    <button type="submit" disabled={formLoading} className={btnPrimary}>
                       {formLoading ? 'Sparar...' : 'Spara ändringar'}
                     </button>
                   </div>
@@ -342,54 +306,21 @@ const Settings: React.FC = () => {
             {/* Email Tab */}
             {activeTab === 'email' && (
               <form onSubmit={handleEmailUpdate}>
-                <div className="space-y-6">
+                <div className="space-y-4 sm:space-y-5">
                   <div>
-                    <label htmlFor="currentEmail" className="block text-sm font-medium text-gray-700">
-                      Nuvarande email
-                    </label>
-                    <input
-                      type="email"
-                      id="currentEmail"
-                      value={user?.email || ''}
-                      disabled
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm bg-gray-50 sm:text-sm"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nuvarande email</label>
+                    <input type="email" value={user?.email || ''} disabled className={`${inputClass} bg-gray-50`} />
                   </div>
-
                   <div>
-                    <label htmlFor="newEmail" className="block text-sm font-medium text-gray-700">
-                      Ny email-adress
-                    </label>
-                    <input
-                      type="email"
-                      id="newEmail"
-                      value={emailForm.newEmail}
-                      onChange={(e) => setEmailForm({ ...emailForm, newEmail: e.target.value })}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      required
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Ny email-adress</label>
+                    <input type="email" required value={emailForm.newEmail} onChange={(e) => setEmailForm({ ...emailForm, newEmail: e.target.value })} className={inputClass} />
                   </div>
-
                   <div>
-                    <label htmlFor="currentPasswordEmail" className="block text-sm font-medium text-gray-700">
-                      Bekräfta med nuvarande lösenord
-                    </label>
-                    <input
-                      type="password"
-                      id="currentPasswordEmail"
-                      value={emailForm.currentPassword}
-                      onChange={(e) => setEmailForm({ ...emailForm, currentPassword: e.target.value })}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      required
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bekräfta med nuvarande lösenord</label>
+                    <input type="password" required value={emailForm.currentPassword} onChange={(e) => setEmailForm({ ...emailForm, currentPassword: e.target.value })} className={inputClass} />
                   </div>
-
-                  <div className="pt-4">
-                    <button
-                      type="submit"
-                      disabled={formLoading}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-                    >
+                  <div className="pt-2">
+                    <button type="submit" disabled={formLoading} className={btnPrimary}>
                       {formLoading ? 'Uppdaterar...' : 'Uppdatera email'}
                     </button>
                   </div>
@@ -400,58 +331,22 @@ const Settings: React.FC = () => {
             {/* Password Tab */}
             {activeTab === 'password' && (
               <form onSubmit={handlePasswordUpdate}>
-                <div className="space-y-6">
+                <div className="space-y-4 sm:space-y-5">
                   <div>
-                    <label htmlFor="currentPassword" className="block text-sm font-medium text-gray-700">
-                      Nuvarande lösenord
-                    </label>
-                    <input
-                      type="password"
-                      id="currentPassword"
-                      value={passwordForm.currentPassword}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      required
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nuvarande lösenord</label>
+                    <input type="password" required value={passwordForm.currentPassword} onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })} className={inputClass} />
                   </div>
-
                   <div>
-                    <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700">
-                      Nytt lösenord
-                    </label>
-                    <input
-                      type="password"
-                      id="newPassword"
-                      value={passwordForm.newPassword}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      required
-                    />
-                    <p className="mt-1 text-sm text-gray-500">
-                      Minst 8 tecken med stor bokstav, liten bokstav, siffra och specialtecken
-                    </p>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nytt lösenord</label>
+                    <input type="password" required value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} className={inputClass} />
+                    <p className="mt-1.5 text-xs text-gray-500">Minst 8 tecken med stor bokstav, liten bokstav, siffra och specialtecken</p>
                   </div>
-
                   <div>
-                    <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-                      Bekräfta nytt lösenord
-                    </label>
-                    <input
-                      type="password"
-                      id="confirmPassword"
-                      value={passwordForm.confirmPassword}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      required
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bekräfta nytt lösenord</label>
+                    <input type="password" required value={passwordForm.confirmPassword} onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} className={inputClass} />
                   </div>
-
-                  <div className="pt-4">
-                    <button
-                      type="submit"
-                      disabled={formLoading}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-                    >
+                  <div className="pt-2">
+                    <button type="submit" disabled={formLoading} className={btnPrimary}>
                       {formLoading ? 'Uppdaterar...' : 'Uppdatera lösenord'}
                     </button>
                   </div>
@@ -462,83 +357,32 @@ const Settings: React.FC = () => {
             {/* Accountant Tab */}
             {activeTab === 'accountant' && (
               <div>
-                <p className="text-sm text-gray-500 mb-6">
+                <p className="text-sm text-gray-500 mb-4">
                   Konfigurera din revisors kontaktuppgifter. Godkända tidsrapporter kan skickas direkt till denna e-postadress.
                 </p>
                 <form onSubmit={handleAccountantSave}>
-                  <div className="space-y-6">
+                  <div className="space-y-4 sm:space-y-5">
                     <div>
-                      <label htmlFor="accountantName" className="block text-sm font-medium text-gray-700">
-                        Namn *
-                      </label>
-                      <input
-                        type="text"
-                        id="accountantName"
-                        required
-                        value={accountantForm.name}
-                        onChange={(e) => setAccountantForm({ ...accountantForm, name: e.target.value })}
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        placeholder="Revisorns namn"
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Namn *</label>
+                      <input type="text" required value={accountantForm.name} onChange={(e) => setAccountantForm({ ...accountantForm, name: e.target.value })} className={inputClass} placeholder="Revisorns namn" />
                     </div>
-
                     <div>
-                      <label htmlFor="accountantEmail" className="block text-sm font-medium text-gray-700">
-                        E-post *
-                      </label>
-                      <input
-                        type="email"
-                        id="accountantEmail"
-                        required
-                        value={accountantForm.email}
-                        onChange={(e) => setAccountantForm({ ...accountantForm, email: e.target.value })}
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        placeholder="revisor@exempel.se"
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">E-post *</label>
+                      <input type="email" required value={accountantForm.email} onChange={(e) => setAccountantForm({ ...accountantForm, email: e.target.value })} className={inputClass} placeholder="revisor@exempel.se" />
                     </div>
-
                     <div>
-                      <label htmlFor="accountantCompany" className="block text-sm font-medium text-gray-700">
-                        Företag
-                      </label>
-                      <input
-                        type="text"
-                        id="accountantCompany"
-                        value={accountantForm.company}
-                        onChange={(e) => setAccountantForm({ ...accountantForm, company: e.target.value })}
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        placeholder="Revisionsbyrå AB"
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Företag</label>
+                      <input type="text" value={accountantForm.company} onChange={(e) => setAccountantForm({ ...accountantForm, company: e.target.value })} className={inputClass} placeholder="Revisionsbyrå AB" />
                     </div>
-
                     <div>
-                      <label htmlFor="accountantPhone" className="block text-sm font-medium text-gray-700">
-                        Telefon
-                      </label>
-                      <input
-                        type="tel"
-                        id="accountantPhone"
-                        value={accountantForm.phone}
-                        onChange={(e) => setAccountantForm({ ...accountantForm, phone: e.target.value })}
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        placeholder="070-123 45 67"
-                      />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Telefon</label>
+                      <input type="tel" value={accountantForm.phone} onChange={(e) => setAccountantForm({ ...accountantForm, phone: e.target.value })} className={inputClass} placeholder="070-123 45 67" />
                     </div>
-
-                    <div className="pt-4 flex gap-3">
-                      <button
-                        type="submit"
-                        disabled={accountantLoading}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-                      >
+                    <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                      <button type="submit" disabled={accountantLoading} className={btnPrimary}>
                         {accountantLoading ? 'Sparar...' : 'Spara'}
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleAccountantTestEmail}
-                        disabled={accountantLoading || !accountantForm.email}
-                        className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-                      >
+                      <button type="button" onClick={handleAccountantTestEmail} disabled={accountantLoading || !accountantForm.email} className={btnSecondary}>
                         {accountantLoading ? 'Skickar...' : 'Skicka testmail'}
                       </button>
                     </div>
@@ -547,10 +391,113 @@ const Settings: React.FC = () => {
               </div>
             )}
 
-            {/* Appearance Tab */}
-            {activeTab === 'appearance' && (
-              <ThemeSelector />
+            {/* Fortnox Tab */}
+            {activeTab === 'fortnox' && (
+              <div>
+                <p className="text-sm text-gray-500 mb-4">
+                  Koppla Fortnox för automatisk lönebearbetning när tidsrapporter skickas till revisor.
+                </p>
+
+                {/* Connection Status */}
+                <div className={`mb-5 p-3 sm:p-4 rounded-lg border ${fortnoxStatus.isConnected ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full flex-shrink-0 ${fortnoxStatus.isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    <div>
+                      <p className="font-medium text-gray-900 text-sm">{fortnoxStatus.isConnected ? 'Ansluten till Fortnox' : 'Ej ansluten'}</p>
+                      {fortnoxStatus.companyName && <p className="text-xs text-gray-600">{fortnoxStatus.companyName}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Credentials Form */}
+                {!fortnoxStatus.isConnected && (
+                  <form onSubmit={handleFortnoxSaveCredentials} className="mb-5">
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Client ID</label>
+                        <input type="text" value={fortnoxCredentials.clientId} onChange={(e) => setFortnoxCredentials({ ...fortnoxCredentials, clientId: e.target.value })} className={inputClass} placeholder="Fortnox Client ID" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
+                        <input type="password" value={fortnoxCredentials.clientSecret} onChange={(e) => setFortnoxCredentials({ ...fortnoxCredentials, clientSecret: e.target.value })} className={inputClass} placeholder="Fortnox Client Secret" />
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button type="submit" disabled={fortnoxLoading || !fortnoxCredentials.clientId || !fortnoxCredentials.clientSecret} className={btnPrimary}>
+                          {fortnoxLoading ? 'Sparar...' : 'Spara uppgifter'}
+                        </button>
+                        {fortnoxStatus.hasCredentials && (
+                          <button type="button" onClick={handleFortnoxConnect} disabled={fortnoxLoading} className="w-full sm:w-auto bg-green-600 text-white px-5 py-2.5 rounded-lg hover:bg-green-700 active:bg-green-800 disabled:opacity-50 text-sm font-medium transition-colors">
+                            {fortnoxLoading ? 'Ansluter...' : 'Anslut till Fortnox'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </form>
+                )}
+
+                {/* Connected Actions */}
+                {fortnoxStatus.isConnected && (
+                  <div className="mb-5 flex flex-col sm:flex-row flex-wrap gap-2">
+                    <button onClick={handleFortnoxTest} disabled={fortnoxLoading} className={btnPrimary}>
+                      {fortnoxLoading ? 'Testar...' : 'Testa anslutning'}
+                    </button>
+                    <button onClick={handleFortnoxSyncEmployees} disabled={fortnoxLoading} className="w-full sm:w-auto bg-purple-600 text-white px-5 py-2.5 rounded-lg hover:bg-purple-700 active:bg-purple-800 disabled:opacity-50 text-sm font-medium transition-colors">
+                      {fortnoxLoading ? 'Synkar...' : 'Synka anställda'}
+                    </button>
+                    <button onClick={handleFortnoxDisconnect} disabled={fortnoxLoading} className="w-full sm:w-auto bg-red-50 text-red-700 border border-red-200 px-5 py-2.5 rounded-lg hover:bg-red-100 active:bg-red-200 disabled:opacity-50 text-sm font-medium transition-colors">
+                      Koppla från
+                    </button>
+                  </div>
+                )}
+
+                {/* Salary Logs */}
+                {fortnoxStatus.isConnected && fortnoxLogs.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-700 mb-3">Lönebearbetningslogg (senaste 20)</h3>
+                    <div className="overflow-x-auto -mx-3 sm:mx-0">
+                      <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Anställd</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Vecka</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Brutto</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Netto</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Datum</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {fortnoxLogs.map((log: any) => (
+                            <tr key={log.id}>
+                              <td className="px-3 py-2 whitespace-nowrap">{log.user?.name}</td>
+                              <td className="px-3 py-2 whitespace-nowrap">v{log.timeReport?.weekNumber}</td>
+                              <td className="px-3 py-2 whitespace-nowrap text-right">{log.grossPay?.toLocaleString('sv-SE')} kr</td>
+                              <td className="px-3 py-2 whitespace-nowrap text-right font-medium text-green-700 hidden sm:table-cell">{log.netPay?.toLocaleString('sv-SE')} kr</td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${
+                                  log.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                                  log.status === 'FAILED' ? 'bg-red-100 text-red-800' :
+                                  log.status === 'PROCESSING' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {log.status === 'COMPLETED' ? 'Klar' : log.status === 'FAILED' ? 'Fel' : log.status === 'PROCESSING' ? 'Bearbetar' : 'Väntar'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 whitespace-nowrap text-gray-500 hidden sm:table-cell">
+                                {new Date(log.createdAt).toLocaleDateString('sv-SE')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
+
+            {/* Appearance Tab */}
+            {activeTab === 'appearance' && <ThemeSelector />}
           </div>
         </div>
       </div>
@@ -559,4 +506,3 @@ const Settings: React.FC = () => {
 };
 
 export default Settings;
-

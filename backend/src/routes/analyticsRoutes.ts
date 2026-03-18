@@ -35,7 +35,7 @@ router.get('/summary', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Kunde inte hämta analytics-sammanfattning',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      ...(process.env.NODE_ENV !== 'production' && { detail: error instanceof Error ? error.message : 'Unknown error' })
     });
   }
 });
@@ -114,7 +114,7 @@ router.get('/full', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Kunde inte hämta fullständig analytics-data',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      ...(process.env.NODE_ENV !== 'production' && { detail: error instanceof Error ? error.message : 'Unknown error' })
     });
   }
 });
@@ -154,7 +154,7 @@ router.get('/traffic-sources', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Kunde inte hämta trafikkällor',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      ...(process.env.NODE_ENV !== 'production' && { detail: error instanceof Error ? error.message : 'Unknown error' })
     });
   }
 });
@@ -179,7 +179,7 @@ router.get('/geographic', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Kunde inte hämta geografisk data',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      ...(process.env.NODE_ENV !== 'production' && { detail: error instanceof Error ? error.message : 'Unknown error' })
     });
   }
 });
@@ -204,7 +204,7 @@ router.get('/trends', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Kunde inte hämta trenddata',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      ...(process.env.NODE_ENV !== 'production' && { detail: error instanceof Error ? error.message : 'Unknown error' })
     });
   }
 });
@@ -223,7 +223,7 @@ router.post('/cache/clear', (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Kunde inte rensa cache',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      ...(process.env.NODE_ENV !== 'production' && { detail: error instanceof Error ? error.message : 'Unknown error' })
     });
   }
 });
@@ -242,7 +242,7 @@ router.get('/cache/info', (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Kunde inte hämta cache-info',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      ...(process.env.NODE_ENV !== 'production' && { detail: error instanceof Error ? error.message : 'Unknown error' })
     });
   }
 });

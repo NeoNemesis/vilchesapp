@@ -167,12 +167,12 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
-      <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 rounded-xl shadow-lg p-6 text-white">
+      <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 rounded-xl shadow-lg p-4 sm:p-6 text-white">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Välkommen tillbaka, {user?.name}!</h1>
+            <h1 className="text-xl sm:text-3xl font-bold">Välkommen tillbaka, {user?.name}!</h1>
             <p className="text-blue-100 mt-2">Här är en översikt över ditt företag och alla projekt.</p>
-            <div className="flex items-center mt-4 space-x-6 text-sm">
+            <div className="flex items-center mt-3 sm:mt-4 space-x-4 sm:space-x-6 flex-wrap text-sm">
               <div className="flex items-center">
                 <CalendarDaysIcon className="h-4 w-4 mr-2" />
                 {format(new Date(), 'EEEE, d MMMM yyyy', { locale: sv })}
@@ -190,17 +190,17 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {/* Enhanced Stats Grid */}
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-6 lg:grid-cols-4">
         {statCards.map((card) => (
           <Link
             key={card.name}
             to={card.link}
             className="bg-white overflow-hidden shadow-lg rounded-xl hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
           >
-            <div className="p-6">
+            <div className="p-3 sm:p-6">
               <div className="flex items-center justify-between">
-                <div className={`${card.bgColor} rounded-xl p-3`}>
-                  <card.icon className={`h-6 w-6 ${card.textColor}`} />
+                <div className={`${card.bgColor} rounded-lg sm:rounded-xl p-2 sm:p-3`}>
+                  <card.icon className={`h-5 w-5 sm:h-6 sm:w-6 ${card.textColor}`} />
                 </div>
                 <div className="flex items-center text-sm">
                   {card.changeType === 'increase' ? (
@@ -223,7 +223,7 @@ const AdminDashboard: React.FC = () => {
                 <dt className="text-sm font-medium text-gray-500 truncate">
                   {card.name}
                 </dt>
-                <dd className="text-3xl font-bold text-gray-900 mt-1">
+                <dd className="text-xl sm:text-3xl font-bold text-gray-900 mt-1">
                   {card.value}
                 </dd>
               </div>
@@ -233,7 +233,7 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-white shadow-lg rounded-xl p-6">
+      <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <SparklesIcon className="h-5 w-5 mr-2 text-blue-600" />
           Snabba åtgärder
@@ -258,7 +258,7 @@ const AdminDashboard: React.FC = () => {
       {/* Charts and Automations */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Project Status Pie Chart */}
-        <div className="bg-white shadow-lg rounded-xl p-6">
+        <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
             <ChartPieIcon className="h-5 w-5 mr-2 text-purple-600" />
             Projektstatus
@@ -307,7 +307,7 @@ const AdminDashboard: React.FC = () => {
         </div>
 
         {/* Quote Status Pie Chart */}
-        <div className="bg-white shadow-lg rounded-xl p-6">
+        <div className="bg-white shadow-lg rounded-xl p-4 sm:p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
             <DocumentTextIcon className="h-5 w-5 mr-2 text-blue-600" />
             Offertstatus
@@ -372,7 +372,7 @@ const AdminDashboard: React.FC = () => {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Recent Projects */}
         <div className="bg-white shadow-lg rounded-xl">
-          <div className="px-6 py-4 border-b border-gray-200">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900 flex items-center">
                 <ClockIcon className="h-5 w-5 mr-2 text-green-600" />
@@ -437,7 +437,7 @@ const AdminDashboard: React.FC = () => {
 
         {/* Activity Feed */}
         <div className="bg-white shadow-lg rounded-xl">
-          <div className="px-6 py-4 border-b border-gray-200">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900 flex items-center">
               <BellIcon className="h-5 w-5 mr-2 text-orange-600" />
               Senaste aktivitet
