@@ -58,7 +58,7 @@ router.get('/stats', async (req: Request, res: Response) => {
     for (const inv of paidInvoices) {
       if (!inv.paidAt) continue;
       const key = `${inv.paidAt.getFullYear()}-${String(inv.paidAt.getMonth() + 1).padStart(2, '0')}`;
-      monthlyRevenue[key] = (monthlyRevenue[key] || 0) + (inv.totalAmount?.toNumber?.() ?? Number(inv.totalAmount) ?? 0);
+      monthlyRevenue[key] = (monthlyRevenue[key] || 0) + Number(inv.totalAmount ?? 0);
     }
 
     return res.json({
